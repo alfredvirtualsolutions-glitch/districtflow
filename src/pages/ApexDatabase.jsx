@@ -1,10 +1,9 @@
 import React, { useState, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Search, Database, BookOpen, LayoutGrid, Download } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Database, BookOpen, LayoutGrid, Download } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ApexTable from "@/components/apex/ApexTable";
@@ -12,7 +11,7 @@ import ApexStatsBar from "@/components/apex/ApexStatsBar";
 import ApexImportDialog from "@/components/apex/ApexImportDialog";
 
 export default function ApexDatabase() {
-  const [search, setSearch] = useState("");
+
   const [selectedState, setSelectedState] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [activeTab, setActiveTab] = useState("all");
@@ -64,19 +63,10 @@ export default function ApexDatabase() {
 
   const filtered = useMemo(() => {
     let result = tabRecords;
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (r) =>
-          r.employer_name?.toLowerCase().includes(q) ||
-          r.city?.toLowerCase().includes(q) ||
-          r.tpa_name?.toLowerCase().includes(q)
-      );
-    }
     if (selectedState !== "all") result = result.filter((r) => r.state === selectedState);
     if (selectedStatus !== "all") result = result.filter((r) => r.status === selectedStatus);
     return result;
-  }, [tabRecords, search, selectedState, selectedStatus]);
+  }, [tabRecords, selectedState, selectedStatus]);
 
   if (isLoading) {
     return (
@@ -139,69 +129,31 @@ export default function ApexDatabase() {
 
         {/* Filters */}
         <div className="flex flex-wrap gap-3 items-center">
-          <div className="relative w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search employers, cities, TPAs..."
-              className="pl-10"
-            />
-          </div>
-
           {/* State filter */}
-          <div className="flex gap-1.5 flex-wrap">
-            <button
-              onClick={() => setSelectedState("all")}
-              className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                selectedState === "all"
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-card border-border text-muted-foreground hover:bg-secondary"
-              }`}
-            >
-              All States
-            </button>
-            {stateOptions.map(({ name, count }) => (
-              <button
-                key={name}
-                onClick={() => setSelectedState(name)}
-                className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                  selectedState === name
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-card border-border text-muted-foreground hover:bg-secondary"
-                }`}
-              >
-                {name} ({count})
-              </button>
-            ))}
-          </div>
+          <Select value={selectedState} onValueChange={setSelectedState}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="All States" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All States</SelectItem>
+              {stateOptions.map(({ name, count }) => (
+                <SelectItem key={name} value={name}>{name} ({count})</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           {/* Status filter */}
-          <div className="flex gap-1.5 flex-wrap">
-            <button
-              onClick={() => setSelectedStatus("all")}
-              className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                selectedStatus === "all"
-                  ? "bg-accent text-accent-foreground border-accent"
-                  : "bg-card border-border text-muted-foreground hover:bg-secondary"
-              }`}
-            >
-              All Statuses
-            </button>
-            {statusOptions.map((s) => (
-              <button
-                key={s}
-                onClick={() => setSelectedStatus(s)}
-                className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                  selectedStatus === s
-                    ? "bg-accent text-accent-foreground border-accent"
-                    : "bg-card border-border text-muted-foreground hover:bg-secondary"
-                }`}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
+          <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              {statusOptions.map((s) => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <p className="text-sm text-muted-foreground">
