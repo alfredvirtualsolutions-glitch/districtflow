@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Search, Database, BookOpen, LayoutGrid } from "lucide-react";
 import { Link } from "react-router-dom";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ApexTable from "@/components/apex/ApexTable";
 import ApexStatsBar from "@/components/apex/ApexStatsBar";
 import ApexImportDialog from "@/components/apex/ApexImportDialog";
@@ -14,28 +15,39 @@ export default function ApexDatabase() {
   const [search, setSearch] = useState("");
   const [selectedState, setSelectedState] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
+  const [activeTab, setActiveTab] = useState("all");
 
   const { data: records = [], isLoading } = useQuery({
     queryKey: ["apex-records"],
     queryFn: () => base44.entities.ApexRecord.list("-created_date", 10000),
   });
 
+  const sourceFiles = useMemo(() => {
+    const set = new Set(records.map((r) => r.source_file).filter(Boolean));
+    return Array.from(set).sort();
+  }, [records]);
+
+  const tabRecords = useMemo(() => {
+    if (activeTab === "all") return records;
+    return records.filter((r) => r.source_file === activeTab);
+  }, [records, activeTab]);
+
   const stateOptions = useMemo(() => {
     const counts = {};
-    records.forEach((r) => {
+    tabRecords.forEach((r) => {
       const st = r.state || "—";
       counts[st] = (counts[st] || 0) + 1;
     });
     return Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)).map(([name, count]) => ({ name, count }));
-  }, [records]);
+  }, [tabRecords]);
 
   const statusOptions = useMemo(() => {
-    const set = new Set(records.map((r) => r.status).filter(Boolean));
+    const set = new Set(tabRecords.map((r) => r.status).filter(Boolean));
     return Array.from(set).sort();
-  }, [records]);
+  }, [tabRecords]);
 
   const filtered = useMemo(() => {
-    let result = records;
+    let result = tabRecords;
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(
@@ -48,7 +60,7 @@ export default function ApexDatabase() {
     if (selectedState !== "all") result = result.filter((r) => r.state === selectedState);
     if (selectedStatus !== "all") result = result.filter((r) => r.status === selectedStatus);
     return result;
-  }, [records, search, selectedState, selectedStatus]);
+  }, [tabRecords, search, selectedState, selectedStatus]);
 
   if (isLoading) {
     return (
@@ -92,6 +104,18 @@ export default function ApexDatabase() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
         <ApexStatsBar records={records} />
+
+        {/* Source Tabs */}
+        <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setSelectedState("all"); setSelectedStatus("all"); }}>
+          <TabsList className="flex flex-wrap h-auto gap-1 bg-muted p-1 rounded-lg">
+            <TabsTrigger value="all" className="text-xs">All Sources ({records.length})</TabsTrigger>
+            {sourceFiles.map((sf) => (
+              <TabsTrigger key={sf} value={sf} className="text-xs max-w-[200px] truncate">
+                {sf.replace(/\.xlsx?$/i, "")} ({records.filter((r) => r.source_file === sf).length})
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
         {/* Filters */}
         <div className="flex flex-wrap gap-3 items-center">
