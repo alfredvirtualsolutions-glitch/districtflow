@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Noto+Sans:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,10 +6,10 @@
 
 @layer base {
   :root {
-    --font-sans: 'Inter', sans-serif;
-    --font-display: 'Playfair Display', serif;
+    --font-sans: 'Roboto', sans-serif;
+    --font-display: 'Noto Sans', sans-serif;
 
-    --background: 40 33% 98%;
+    --background: 40 12% 77%;
     --foreground: 220 20% 14%;
     --card: 0 0% 100%;
     --card-foreground: 220 20% 14%;
