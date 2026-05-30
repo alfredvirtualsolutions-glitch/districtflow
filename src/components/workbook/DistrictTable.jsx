@@ -2,13 +2,15 @@ import React, { useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronUp, Trash2, StickyNote } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
 import { useQueryClient } from "@tanstack/react-query";
+import DistrictDetailDrawer from "./DistrictDetailDrawer";
 
 export default function DistrictTable({ stateName, districts }) {
   const [expanded, setExpanded] = useState(true);
+  const [selected, setSelected] = useState(null);
   const queryClient = useQueryClient();
 
   const handleDelete = async (id, e) => {
@@ -18,6 +20,8 @@ export default function DistrictTable({ stateName, districts }) {
   };
 
   return (
+    <>
+    <DistrictDetailDrawer district={selected} onClose={() => setSelected(null)} />
     <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
       <button
         onClick={() => setExpanded(!expanded)}
@@ -62,7 +66,8 @@ export default function DistrictTable({ stateName, districts }) {
                   {districts.map((d) => (
                     <TableRow
                       key={d.id}
-                      className="hover:bg-muted/30 transition-colors"
+                      className="hover:bg-muted/30 transition-colors cursor-pointer"
+                      onClick={() => setSelected(d)}
                     >
                       <TableCell className="font-medium max-w-[250px] truncate">
                         {d.district_name}
@@ -109,14 +114,19 @@ export default function DistrictTable({ stateName, districts }) {
                         {d.num_teachers_visible || "—"}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          onClick={(e) => handleDelete(d.id, e)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          {d.notes && (
+                            <StickyNote className="w-3.5 h-3.5 text-accent" title="Has notes" />
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            onClick={(e) => handleDelete(d.id, e)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -127,5 +137,6 @@ export default function DistrictTable({ stateName, districts }) {
         )}
       </AnimatePresence>
     </div>
+    </>
   );
 }

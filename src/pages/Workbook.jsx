@@ -7,6 +7,8 @@ import StateFilter from "../components/workbook/StateFilter";
 import DistrictTable from "../components/workbook/DistrictTable";
 import AddDistrictDialog from "../components/workbook/AddDistrictDialog";
 import StatsBar from "../components/workbook/StatsBar";
+import ExportButton from "../components/workbook/ExportButton";
+import CSVUploadDialog from "../components/workbook/CSVUploadDialog";
 
 export default function Workbook() {
   const [search, setSearch] = useState("");
@@ -85,7 +87,11 @@ export default function Workbook() {
               </p>
             </div>
           </div>
-          <AddDistrictDialog />
+          <div className="flex items-center gap-2 flex-wrap">
+            <ExportButton districts={filtered} />
+            <CSVUploadDialog />
+            <AddDistrictDialog />
+          </div>
         </div>
       </header>
 
