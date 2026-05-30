@@ -14,6 +14,7 @@ import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
 import Workbook from '@/pages/Workbook';
 import KanbanBoard from '@/pages/KanbanBoard';
+import ApexDatabase from '@/pages/ApexDatabase';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -48,6 +49,7 @@ const AuthenticatedApp = () => {
       <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
         <Route path="/" element={<Workbook />} />
         <Route path="/kanban" element={<KanbanBoard />} />
+        <Route path="/apex" element={<ApexDatabase />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

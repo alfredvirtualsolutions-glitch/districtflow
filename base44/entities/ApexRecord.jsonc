@@ -1,0 +1,53 @@
+{
+  "name": "ApexRecord",
+  "type": "object",
+  "properties": {
+    "employer_name": {
+      "type": "string",
+      "description": "Employer / School District name"
+    },
+    "city": {
+      "type": "string",
+      "description": "City"
+    },
+    "state": {
+      "type": "string",
+      "description": "State abbreviation"
+    },
+    "tpa_name": {
+      "type": "string",
+      "description": "Third Party Administrator name"
+    },
+    "status": {
+      "type": "string",
+      "description": "Status (Active, Dormant, Low Prod, Open Slot, etc.)"
+    },
+    "group_type": {
+      "type": "string",
+      "description": "Group type (403b TSA, etc.)"
+    },
+    "classification": {
+      "type": "string",
+      "description": "Classification (Public School, Charter School, etc.)"
+    },
+    "num_employees": {
+      "type": "string",
+      "description": "Number of employees"
+    },
+    "platform": {
+      "type": "string",
+      "description": "Platform (NLG, Midland, etc.)"
+    },
+    "source_file": {
+      "type": "string",
+      "description": "Source file this record came from"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    }
+  },
+  "required": [
+    "employer_name"
+  ]
+}
