@@ -1,0 +1,38 @@
+{
+  "name": "SchoolDistrict",
+  "type": "object",
+  "properties": {
+    "district_name": {
+      "type": "string",
+      "description": "Name of the school district"
+    },
+    "state": {
+      "type": "string",
+      "description": "US state abbreviation"
+    },
+    "website_url": {
+      "type": "string",
+      "description": "District website URL"
+    },
+    "staff_directory_url": {
+      "type": "string",
+      "description": "Staff directory URL"
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "Yes",
+        "No"
+      ],
+      "default": "Yes",
+      "description": "Whether teachers are visible"
+    },
+    "num_teachers_visible": {
+      "type": "string",
+      "description": "Number of teachers visible"
+    }
+  },
+  "required": [
+    "district_name"
+  ]
+}
