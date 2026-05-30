@@ -30,6 +30,33 @@
     "num_teachers_visible": {
       "type": "string",
       "description": "Number of teachers visible"
+    },
+    "district_size": {
+      "type": "string",
+      "enum": [
+        "Small",
+        "Medium",
+        "Large",
+        "Unknown"
+      ],
+      "default": "Unknown",
+      "description": "District size category"
+    },
+    "contact_email": {
+      "type": "string",
+      "description": "Primary contact email"
+    },
+    "phone": {
+      "type": "string",
+      "description": "District phone number"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Personal research notes"
+    },
+    "enrollment": {
+      "type": "string",
+      "description": "Approximate student enrollment"
     }
   },
   "required": [
