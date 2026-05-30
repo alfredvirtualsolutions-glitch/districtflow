@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Database, BookOpen, LayoutGrid } from "lucide-react";
+import { Search, Database, BookOpen, LayoutGrid, Download } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ApexTable from "@/components/apex/ApexTable";
@@ -45,6 +45,22 @@ export default function ApexDatabase() {
     const set = new Set(tabRecords.map((r) => r.status).filter(Boolean));
     return Array.from(set).sort();
   }, [tabRecords]);
+
+  const exportCSV = () => {
+    const headers = ["Employer Name", "City", "State", "TPA Name", "Status", "Classification", "Platform", "# Employees", "Source File"];
+    const rows = filtered.map((r) => [
+      r.employer_name, r.city, r.state, r.tpa_name, r.status,
+      r.classification, r.platform, r.num_employees, r.source_file,
+    ].map((v) => `"${(v || "").toString().replace(/"/g, '""')}"`));
+    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `apex-records-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const filtered = useMemo(() => {
     let result = tabRecords;
@@ -97,6 +113,10 @@ export default function ApexDatabase() {
                 Pipeline
               </Button>
             </Link>
+            <Button variant="outline" className="gap-2" onClick={exportCSV}>
+              <Download className="w-4 h-4" />
+              Export CSV
+            </Button>
             <ApexImportDialog />
           </div>
         </div>
