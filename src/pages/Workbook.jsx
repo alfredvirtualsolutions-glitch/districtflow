@@ -2,7 +2,9 @@ import React, { useState, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
-import { Search, BookOpen } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Search, BookOpen, LayoutGrid } from "lucide-react";
+import { Link } from "react-router-dom";
 import StateFilter from "../components/workbook/StateFilter";
 import DistrictTable from "../components/workbook/DistrictTable";
 import AddDistrictDialog from "../components/workbook/AddDistrictDialog";
@@ -88,6 +90,12 @@ export default function Workbook() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <Link to="/kanban">
+              <Button variant="outline" className="gap-2">
+                <LayoutGrid className="w-4 h-4" />
+                Pipeline Board
+              </Button>
+            </Link>
             <ExportButton districts={filtered} />
             <CSVUploadDialog />
             <AddDistrictDialog />

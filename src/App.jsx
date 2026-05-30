@@ -13,6 +13,7 @@ import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
 import Workbook from '@/pages/Workbook';
+import KanbanBoard from '@/pages/KanbanBoard';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -46,6 +47,7 @@ const AuthenticatedApp = () => {
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
         <Route path="/" element={<Workbook />} />
+        <Route path="/kanban" element={<KanbanBoard />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

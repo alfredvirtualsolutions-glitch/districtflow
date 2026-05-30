@@ -57,6 +57,17 @@
     "enrollment": {
       "type": "string",
       "description": "Approximate student enrollment"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Researching",
+        "Contacted",
+        "Qualified",
+        "Archived"
+      ],
+      "default": "Researching",
+      "description": "Pipeline status for tracking progress"
     }
   },
   "required": [
