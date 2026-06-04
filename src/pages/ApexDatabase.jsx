@@ -1,20 +1,24 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Database, BookOpen, LayoutGrid, Download } from "lucide-react";
+import { Database, BookOpen, LayoutGrid, Download, CheckSquare } from "lucide-react";
 import { Link } from "react-router-dom";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ApexTable from "@/components/apex/ApexTable";
 import ApexStatsBar from "@/components/apex/ApexStatsBar";
+import ApexSummaryBox from "@/components/apex/ApexSummaryBox";
 import ApexImportDialog from "@/components/apex/ApexImportDialog";
 
 export default function ApexDatabase() {
-
   const [selectedState, setSelectedState] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [activeTab, setActiveTab] = useState("all");
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+
+  const queryClient = useQueryClient();
 
   const { data: records = [], isLoading } = useQuery({
     queryKey: ["apex-records"],
@@ -45,6 +49,46 @@ export default function ApexDatabase() {
     return Array.from(set).sort();
   }, [tabRecords]);
 
+  const filtered = useMemo(() => {
+    let result = tabRecords;
+    if (selectedState !== "all") result = result.filter((r) => r.state === selectedState);
+    if (selectedStatus !== "all") result = result.filter((r) => r.status === selectedStatus);
+    return result;
+  }, [tabRecords, selectedState, selectedStatus]);
+
+  const handleToggleRow = useCallback((id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleToggleAll = useCallback((visibleRecords) => {
+    const allSelected = visibleRecords.every((r) => selectedIds.has(r.id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        visibleRecords.forEach((r) => next.delete(r.id));
+      } else {
+        visibleRecords.forEach((r) => next.add(r.id));
+      }
+      return next;
+    });
+  }, [selectedIds]);
+
+  const handleBulkStatus = async (newStatus) => {
+    setBulkUpdating(true);
+    await Promise.all(
+      Array.from(selectedIds).map((id) =>
+        base44.entities.ApexRecord.update(id, { status: newStatus })
+      )
+    );
+    setSelectedIds(new Set());
+    queryClient.invalidateQueries({ queryKey: ["apex-records"] });
+    setBulkUpdating(false);
+  };
+
   const exportCSV = () => {
     const headers = ["Employer Name", "City", "State", "TPA Name", "Status", "Classification", "Platform", "# Employees", "Source File"];
     const rows = filtered.map((r) => [
@@ -60,13 +104,6 @@ export default function ApexDatabase() {
     a.click();
     URL.revokeObjectURL(url);
   };
-
-  const filtered = useMemo(() => {
-    let result = tabRecords;
-    if (selectedState !== "all") result = result.filter((r) => r.state === selectedState);
-    if (selectedStatus !== "all") result = result.filter((r) => r.status === selectedStatus);
-    return result;
-  }, [tabRecords, selectedState, selectedStatus]);
 
   if (isLoading) {
     return (
@@ -114,9 +151,10 @@ export default function ApexDatabase() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
         <ApexStatsBar records={records} />
+        <ApexSummaryBox records={records} />
 
         {/* Source Tabs */}
-        <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setSelectedState("all"); setSelectedStatus("all"); }}>
+        <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setSelectedState("all"); setSelectedStatus("all"); setSelectedIds(new Set()); }}>
           <TabsList className="flex flex-wrap h-auto gap-1 bg-muted p-1 rounded-lg">
             <TabsTrigger value="all" className="text-xs">All Sources ({records.length})</TabsTrigger>
             {sourceFiles.map((sf) => (
@@ -129,7 +167,6 @@ export default function ApexDatabase() {
 
         {/* Filters */}
         <div className="flex flex-wrap gap-3 items-center">
-          {/* State filter */}
           <Select value={selectedState} onValueChange={setSelectedState}>
             <SelectTrigger className="w-44">
               <SelectValue placeholder="All States" />
@@ -142,7 +179,6 @@ export default function ApexDatabase() {
             </SelectContent>
           </Select>
 
-          {/* Status filter */}
           <Select value={selectedStatus} onValueChange={setSelectedStatus}>
             <SelectTrigger className="w-44">
               <SelectValue placeholder="All Statuses" />
@@ -156,11 +192,51 @@ export default function ApexDatabase() {
           </Select>
         </div>
 
+        {/* Bulk action bar */}
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-3 bg-primary/10 border border-primary/30 rounded-lg px-4 py-3">
+            <CheckSquare className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium text-primary">{selectedIds.size} selected</span>
+            <div className="flex gap-2 ml-auto">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={bulkUpdating}
+                onClick={() => handleBulkStatus("Qualified")}
+                className="border-purple-300 text-purple-700 hover:bg-purple-50"
+              >
+                Mark Qualified
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={bulkUpdating}
+                onClick={() => handleBulkStatus("Pending")}
+                className="border-orange-300 text-orange-700 hover:bg-orange-50"
+              >
+                Mark Pending
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+        )}
+
         <p className="text-sm text-muted-foreground">
           Showing <span className="font-semibold text-foreground">{filtered.length.toLocaleString()}</span> of {records.length.toLocaleString()} records
         </p>
 
-        <ApexTable records={filtered} />
+        <ApexTable
+          records={filtered}
+          selectedIds={selectedIds}
+          onToggleRow={handleToggleRow}
+          onToggleAll={handleToggleAll}
+        />
       </main>
     </div>
   );
