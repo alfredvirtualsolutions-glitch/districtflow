@@ -18,6 +18,11 @@
       "type": "string",
       "description": "Staff directory URL"
     },
+    "url_reviewed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the staff directory URL has been visited/checked"
+    },
     "visibility": {
       "type": "string",
       "enum": [

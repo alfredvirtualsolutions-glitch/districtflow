@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, ChevronDown, ChevronUp, Trash2, StickyNote } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronUp, Trash2, StickyNote, CheckCircle2, Circle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { base44 } from "@/api/base44Client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -16,6 +16,12 @@ export default function DistrictTable({ stateName, districts }) {
   const handleDelete = async (id, e) => {
     e.stopPropagation();
     await base44.entities.SchoolDistrict.delete(id);
+    queryClient.invalidateQueries({ queryKey: ["school-districts"] });
+  };
+
+  const handleToggleReviewed = async (d, e) => {
+    e.stopPropagation();
+    await base44.entities.SchoolDistrict.update(d.id, { url_reviewed: !d.url_reviewed });
     queryClient.invalidateQueries({ queryKey: ["school-districts"] });
   };
 
@@ -57,6 +63,7 @@ export default function DistrictTable({ stateName, districts }) {
                     <TableHead className="font-semibold">District Name</TableHead>
                     <TableHead className="font-semibold">Website</TableHead>
                     <TableHead className="font-semibold">Staff Directory</TableHead>
+                    <TableHead className="font-semibold text-center">Reviewed</TableHead>
                     <TableHead className="font-semibold text-center">Visibility</TableHead>
                     <TableHead className="font-semibold text-center">Teachers</TableHead>
                     <TableHead className="w-12"></TableHead>
@@ -97,6 +104,18 @@ export default function DistrictTable({ stateName, districts }) {
                             <span className="truncate max-w-[180px]">Directory</span>
                           </a>
                         )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <button
+                          onClick={(e) => handleToggleReviewed(d, e)}
+                          title={d.url_reviewed ? "Mark as not reviewed" : "Mark as reviewed"}
+                          className="hover:opacity-70 transition-opacity"
+                        >
+                          {d.url_reviewed
+                            ? <CheckCircle2 className="w-5 h-5 text-green-500 mx-auto" />
+                            : <Circle className="w-5 h-5 text-muted-foreground mx-auto" />
+                          }
+                        </button>
                       </TableCell>
                       <TableCell className="text-center">
                         <Badge
