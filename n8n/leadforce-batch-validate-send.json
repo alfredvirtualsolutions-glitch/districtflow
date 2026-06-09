@@ -259,8 +259,8 @@
       "parameters": {
         "fromEmail": "benefitcheck@benefitview.us",
         "toEmail": "={{ $json.email }}",
-        "subject": "={{ $json.subject_line || ('Reaching Out — ' + ($json.district_name || $json.first_name || '')) }}",
-        "message": "={{ $json.email_body || ('Hello ' + ($json.first_name || '') + ',\\n\\nI wanted to reach out regarding your district...\\n\\nBest,\\nRyan Cahill') }}",
+        "subject": "={{ $json.subject_line || ('Complimentary Pension Review — ' + ($json.district_name || '')) }}",
+        "message": "={{ $json.email_body || ('Hi ' + ($json.first_name || '') + ',\\n\\nMy name is Ryan Cahill and I help educate CalSTRS and CalPERS employees with regards to the California State Teachers Retirement System Pension Benefits Plan.\\n\\nI am currently meeting virtually with educators in ' + ($json.district_name || '') + '.\\n\\nDuring our meeting, we will cover the following agenda items:\\n● When is the soonest you are eligible to retire?\\n● How much is your pension going to pay you?\\n● Do you qualify for social security benefits?\\n● Do you get both a pension and social security?\\n● How much income will your 403b or 457 provide you in retirement?\\n\\nHere is my calendar link to select a day & time that works best for you.\\n\\nComplimentary Pension Review\\n\\nThis service is part of a state-approved financial education program for school employees. While we\\'re not affiliated with CalSTRS or your district, we\\'re here to help you make informed, confident decisions about your retirement.\\n\\nI look forward to helping you!\\n\\nRyan Cahill\\nPension & Retirement Specialist\\nPhone No: 614-806-0233\\nCA Lic. 0156729\\nryan@meetryancahill.com') }}",
         "options": { "appendAttribution": false }
       },
       "credentials": {

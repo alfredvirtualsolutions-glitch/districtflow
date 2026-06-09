@@ -59,6 +59,11 @@ Deno.serve(async (req) => {
       if (!recipient.email) continue;
       try {
         const personalizedBody = body
+          .replace(/\{\{first_name\}\}/g, recipient.first_name || '')
+          .replace(/\{\{district_name\}\}/g, recipient.district_name || '')
+          .replace(/\{\{state\}\}/g, recipient.state || '');
+        const personalizedSubject = subject
+          .replace(/\{\{first_name\}\}/g, recipient.first_name || '')
           .replace(/\{\{district_name\}\}/g, recipient.district_name || '')
           .replace(/\{\{state\}\}/g, recipient.state || '');
 
@@ -71,7 +76,7 @@ Deno.serve(async (req) => {
         await transporter.sendMail({
           from: `"${senderName}" <${account.email}>`,
           to: recipient.email,
-          subject,
+          subject: personalizedSubject,
           text: personalizedBody,
           html: `<div style="font-family:sans-serif;line-height:1.6">${htmlBody}</div>`,
         });
