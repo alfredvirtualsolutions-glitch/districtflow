@@ -1,0 +1,367 @@
+{
+  "name": "Leadforce — Enrich (Apollo) → Validate (Clay) → Send (SpaceMail) every 30 min",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 400],
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 30 }]
+        }
+      }
+    },
+
+    {
+      "id": "fetch-unenriched",
+      "name": "📥 Get 100 Unenriched Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 100],
+      "parameters": {
+        "method": "GET",
+        "url": "https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "enrichment_status", "value": "is.null" },
+            { "name": "suppressed",         "value": "eq.false" },
+            { "name": "select",             "value": "id,first_name,last_name,email,organization,district_name,state,website" },
+            { "name": "limit",              "value": "100" },
+            { "name": "order",              "value": "created_at.asc" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Authorization", "value": "Bearer sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "loop-enrich",
+      "name": "Loop Enrich — 1 at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [480, 100],
+      "parameters": { "batchSize": 1, "options": {} }
+    },
+
+    {
+      "id": "apollo-enrich",
+      "name": "🔮 Apollo — People Match",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 100],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/people/match",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ first_name: $json.first_name, last_name: $json.last_name, email: $json.email, organization_name: $json.organization || $json.district_name, domain: ($json.website || '').replace(/https?:\\/\\//, '').split('/')[0] || undefined, reveal_personal_emails: false }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-api-key",    "value": "AS_e99227d9ec03d5e85ec5a9a7adb10b3f1d6a7473.-4IXyT08cWtWf74qOqhUDBVkisY3novkIJKJm2cfAxU" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "save-enrichment",
+      "name": "✅ Save Apollo Enrichment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 100],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads?id=eq.{{ $('Loop Enrich — 1 at a time').item.json.id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: ($json.person || {}).title || null, linkedin_url: ($json.person || {}).linkedin_url || null, advisor_name: ($json.person || {}).name || null, enrichment_status: $json.person ? 'enriched' : 'not_found', enriched_at: new Date().toISOString(), updated_at: new Date().toISOString() }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Authorization", "value": "Bearer sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "enrich-done",
+      "name": "Enrichment Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 220],
+      "parameters": {}
+    },
+
+    {
+      "id": "fetch-unvalidated",
+      "name": "📥 Get 100 Unvalidated Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 400],
+      "parameters": {
+        "method": "GET",
+        "url": "https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "enrichment_status",  "value": "eq.enriched" },
+            { "name": "validation_status",  "value": "is.null" },
+            { "name": "suppressed",         "value": "eq.false" },
+            { "name": "select",             "value": "id,first_name,last_name,email,organization,district_name" },
+            { "name": "limit",              "value": "100" },
+            { "name": "order",              "value": "created_at.asc" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Authorization", "value": "Bearer sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "loop-validate",
+      "name": "Loop Validate — 1 at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [480, 400],
+      "parameters": { "batchSize": 1, "options": {} }
+    },
+
+    {
+      "id": "clay-validate",
+      "name": "🟠 Clay — Verify Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 400],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.clay.com/v3/sources/verify-email/run",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ email: $json.email, firstName: $json.first_name, lastName: $json.last_name, companyName: $json.organization || $json.district_name }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Authorization", "value": "Bearer a120d6dc8bd37437882a" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "save-validation",
+      "name": "✅ Save Clay Validation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 400],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads?id=eq.{{ $('Loop Validate — 1 at a time').item.json.id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ validation_status: ($json.status === 'valid' || $json.result === 'valid' || $json.deliverable === true) ? 'valid' : 'invalid', validator_used: 'clay', validated_at: new Date().toISOString(), updated_at: new Date().toISOString() }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Authorization", "value": "Bearer sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "validate-done",
+      "name": "Validation Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 520],
+      "parameters": {}
+    },
+
+    {
+      "id": "fetch-unsent",
+      "name": "📥 Get 100 Valid Unsent Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 700],
+      "parameters": {
+        "method": "GET",
+        "url": "https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "validation_status", "value": "eq.valid" },
+            { "name": "send_status",       "value": "is.null" },
+            { "name": "suppressed",        "value": "eq.false" },
+            { "name": "select",            "value": "id,email,first_name,last_name,district_name,state,subject_line,email_body,sequence_day,send_attempt_count,priority_score" },
+            { "name": "limit",             "value": "100" },
+            { "name": "order",             "value": "priority_score.desc.nullslast,created_at.asc" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Authorization", "value": "Bearer sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "loop-send",
+      "name": "Loop Send — 1 at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [480, 700],
+      "parameters": { "batchSize": 1, "options": {} }
+    },
+
+    {
+      "id": "send-email",
+      "name": "📧 Send via SpaceMail",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [720, 700],
+      "parameters": {
+        "fromEmail": "benefitcheck@benefitview.us",
+        "toEmail": "={{ $json.email }}",
+        "subject": "={{ $json.subject_line || ('Complimentary Pension Review — ' + ($json.district_name || '')) }}",
+        "message": "={{ $json.email_body || ('Hi ' + ($json.first_name || '') + ',\\n\\nMy name is Ryan Cahill and I help educate CalSTRS and CalPERS employees with regards to the California State Teachers Retirement System Pension Benefits Plan.\\n\\nI am currently meeting virtually with educators in ' + ($json.district_name || '') + '.\\n\\nDuring our meeting, we will cover the following agenda items:\\n● When is the soonest you are eligible to retire?\\n● How much is your pension going to pay you?\\n● Do you qualify for social security benefits?\\n● Do you get both a pension and social security?\\n● How much income will your 403b or 457 provide you in retirement?\\n\\nHere is my calendar link to select a day & time that works best for you.\\n\\nComplimentary Pension Review\\n\\nThis service is part of a state-approved financial education program for school employees. While we\\'re not affiliated with CalSTRS or your district, we\\'re here to help you make informed, confident decisions about your retirement.\\n\\nI look forward to helping you!\\n\\nRyan Cahill\\nPension & Retirement Specialist\\nPhone No: 614-806-0233\\nCA Lic. 0156729\\nryan@meetryancahill.com') }}",
+        "options": { "appendAttribution": false }
+      },
+      "credentials": {
+        "smtp": { "id": "", "name": "SpaceMail SMTP" }
+      }
+    },
+
+    {
+      "id": "mark-sent",
+      "name": "✅ Mark Lead Sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 700],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads?id=eq.{{ $('Loop Send — 1 at a time').item.json.id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ send_status: 'sent', email_status: 'sent', sender_account: 'benefitcheck@benefitview.us', sent_at: new Date().toISOString(), send_attempt_count: ($('Loop Send — 1 at a time').item.json.send_attempt_count || 0) + 1, updated_at: new Date().toISOString() }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Authorization", "value": "Bearer sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "send-done",
+      "name": "Send Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 820],
+      "parameters": {}
+    }
+  ],
+
+  "connections": {
+    "Every 30 Minutes": {
+      "main": [[
+        { "node": "📥 Get 100 Unenriched Leads",   "type": "main", "index": 0 },
+        { "node": "📥 Get 100 Unvalidated Leads",   "type": "main", "index": 0 },
+        { "node": "📥 Get 100 Valid Unsent Leads",  "type": "main", "index": 0 }
+      ]]
+    },
+
+    "📥 Get 100 Unenriched Leads": {
+      "main": [[{ "node": "Loop Enrich — 1 at a time", "type": "main", "index": 0 }]]
+    },
+    "Loop Enrich — 1 at a time": {
+      "main": [
+        [{ "node": "🔮 Apollo — People Match",  "type": "main", "index": 0 }],
+        [{ "node": "Enrichment Done",            "type": "main", "index": 0 }]
+      ]
+    },
+    "🔮 Apollo — People Match": {
+      "main": [[{ "node": "✅ Save Apollo Enrichment", "type": "main", "index": 0 }]]
+    },
+    "✅ Save Apollo Enrichment": {
+      "main": [[{ "node": "Loop Enrich — 1 at a time", "type": "main", "index": 0 }]]
+    },
+
+    "📥 Get 100 Unvalidated Leads": {
+      "main": [[{ "node": "Loop Validate — 1 at a time", "type": "main", "index": 0 }]]
+    },
+    "Loop Validate — 1 at a time": {
+      "main": [
+        [{ "node": "🟠 Clay — Verify Email", "type": "main", "index": 0 }],
+        [{ "node": "Validation Done",        "type": "main", "index": 0 }]
+      ]
+    },
+    "🟠 Clay — Verify Email": {
+      "main": [[{ "node": "✅ Save Clay Validation", "type": "main", "index": 0 }]]
+    },
+    "✅ Save Clay Validation": {
+      "main": [[{ "node": "Loop Validate — 1 at a time", "type": "main", "index": 0 }]]
+    },
+
+    "📥 Get 100 Valid Unsent Leads": {
+      "main": [[{ "node": "Loop Send — 1 at a time", "type": "main", "index": 0 }]]
+    },
+    "Loop Send — 1 at a time": {
+      "main": [
+        [{ "node": "📧 Send via SpaceMail", "type": "main", "index": 0 }],
+        [{ "node": "Send Done",             "type": "main", "index": 0 }]
+      ]
+    },
+    "📧 Send via SpaceMail": {
+      "main": [[{ "node": "✅ Mark Lead Sent", "type": "main", "index": 0 }]]
+    },
+    "✅ Mark Lead Sent": {
+      "main": [[{ "node": "Loop Send — 1 at a time", "type": "main", "index": 0 }]]
+    }
+  },
+
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": ["leadforce", "apollo", "clay", "email", "automation"]
+}

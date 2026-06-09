@@ -16,9 +16,45 @@ const SMTP_ACCOUNTS = [
   "benefitcheck@benefitview.us",
   "clarityreview@benefitview.us",
   "notification@benefitview.us",
+  "educators@403bclarity.org",
+  "ryan@403bclarity.org",
+  "401kupdates@pensionaid.me",
+  "districtadvisor@pensionaid.me",
+  "futureready@pensionaid.me",
+  "notification@pensionaid.me",
+  "reviewclarity@pensionaid.me",
 ];
 
 const DEFAULT_FROM_NAME = "Ryan Cahill";
+
+const DEFAULT_SUBJECT = "Complimentary Pension Review — {{district_name}}";
+
+const DEFAULT_BODY = `Hi {{first_name}},
+
+My name is Ryan Cahill and I help educate CalSTRS and CalPERS employees with regards to the California State Teachers Retirement System Pension Benefits Plan.
+
+I am currently meeting virtually with educators in {{district_name}}.
+
+During our meeting, we will cover the following agenda items:
+● When is the soonest you are eligible to retire?
+● How much is your pension going to pay you?
+● Do you qualify for social security benefits?
+● Do you get both a pension and social security?
+● How much income will your 403b or 457 provide you in retirement?
+
+Here is my calendar link to select a day & time that works best for you.
+
+Complimentary Pension Review
+
+This service is part of a state-approved financial education program for school employees. While we're not affiliated with CalSTRS or your district, we're here to help you make informed, confident decisions about your retirement.
+
+I look forward to helping you!
+
+Ryan Cahill
+Pension & Retirement Specialist
+Phone No: 614-806-0233
+CA Lic. 0156729
+ryan@meetryancahill.com`;
 
 export default function SendEmailDialog({ districts = [] }) {
   const [open, setOpen] = useState(false);
@@ -26,8 +62,8 @@ export default function SendEmailDialog({ districts = [] }) {
   const [form, setForm] = useState({
     from_name: DEFAULT_FROM_NAME,
     from_email: SMTP_ACCOUNTS[0],
-    subject: "",
-    body: "",
+    subject: DEFAULT_SUBJECT,
+    body: DEFAULT_BODY,
   });
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState(null);
@@ -47,6 +83,7 @@ export default function SendEmailDialog({ districts = [] }) {
       const payload = {
         recipients: recipients.map((d) => ({
           email: d.contact_email,
+          first_name: d.first_name || "",
           district_name: d.district_name || "",
           state: d.state || "",
         })),
@@ -76,6 +113,7 @@ export default function SendEmailDialog({ districts = [] }) {
     setStep("compose");
     setProgress(0);
     setResults(null);
+    setForm({ from_name: DEFAULT_FROM_NAME, from_email: SMTP_ACCOUNTS[0], subject: DEFAULT_SUBJECT, body: DEFAULT_BODY });
   };
 
   return (
@@ -144,7 +182,7 @@ export default function SendEmailDialog({ districts = [] }) {
               <Input
                 value={form.subject}
                 onChange={(e) => setForm({ ...form, subject: e.target.value })}
-                placeholder="e.g. Partnership Opportunity – {{district_name}}"
+                placeholder="e.g. Complimentary Pension Review — {{district_name}}"
               />
             </div>
 
@@ -158,7 +196,8 @@ export default function SendEmailDialog({ districts = [] }) {
                 className="font-mono text-sm resize-y"
               />
               <p className="text-xs text-muted-foreground">
-                Use <code className="bg-muted px-1 rounded">{"{{district_name}}"}</code> or{" "}
+                Use <code className="bg-muted px-1 rounded">{"{{first_name}}"}</code>,{" "}
+                <code className="bg-muted px-1 rounded">{"{{district_name}}"}</code>, or{" "}
                 <code className="bg-muted px-1 rounded">{"{{state}}"}</code> for personalization.
               </p>
             </div>
