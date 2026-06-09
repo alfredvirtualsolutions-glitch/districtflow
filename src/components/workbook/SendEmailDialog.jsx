@@ -18,6 +18,11 @@ const SMTP_ACCOUNTS = [
   "notification@benefitview.us",
   "educators@403bclarity.org",
   "ryan@403bclarity.org",
+  "401kupdates@pensionaid.me",
+  "districtadvisor@pensionaid.me",
+  "futureready@pensionaid.me",
+  "notification@pensionaid.me",
+  "reviewclarity@pensionaid.me",
 ];
 
 const DEFAULT_FROM_NAME = "Ryan Cahill";
