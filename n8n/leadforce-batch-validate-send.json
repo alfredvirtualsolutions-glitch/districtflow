@@ -1,12 +1,12 @@
 {
-  "name": "Leadforce — Validate, Enrich & Send (every 30 min)",
+  "name": "Leadforce — Enrich (Apollo) → Validate (Clay) → Send (SpaceMail) every 30 min",
   "nodes": [
     {
-      "id": "trigger-30min",
+      "id": "trigger",
       "name": "Every 30 Minutes",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 300],
+      "position": [0, 400],
       "parameters": {
         "rule": {
           "interval": [{ "field": "minutes", "minutesInterval": 30 }]
@@ -15,8 +15,8 @@
     },
 
     {
-      "id": "fetch-unvalidated",
-      "name": "📥 Get 100 Unvalidated Leads",
+      "id": "fetch-unenriched",
+      "name": "📥 Get 100 Unenriched Leads",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [240, 100],
@@ -26,9 +26,9 @@
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "validation_status", "value": "is.null" },
+            { "name": "enrichment_status", "value": "is.null" },
             { "name": "suppressed",         "value": "eq.false" },
-            { "name": "select",             "value": "id,email,first_name,last_name,district_name,state" },
+            { "name": "select",             "value": "id,first_name,last_name,email,organization,district_name,state,website" },
             { "name": "limit",              "value": "100" },
             { "name": "order",              "value": "created_at.asc" }
           ]
@@ -46,29 +46,49 @@
     },
 
     {
-      "id": "validate-code",
-      "name": "🔍 Validate Email",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "loop-enrich",
+      "name": "Loop Enrich — 1 at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
       "position": [480, 100],
-      "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "// ─────────────────────────────────────────────────────────────────\n// Basic format check — swap the regex block with a real API call:\n//   NeverBounce:  GET https://api.neverbounce.com/v4/single/check?key=KEY&email=EMAIL\n//   ZeroBounce:   GET https://api.zerobounce.net/v2/validate?api_key=KEY&email=EMAIL\n//   Hunter:       GET https://api.hunter.io/v2/email-verifier?email=EMAIL&api_key=KEY\n// ─────────────────────────────────────────────────────────────────\nconst email = ($input.item.json.email || '').trim();\nconst valid = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);\nreturn {\n  ...$input.item.json,\n  _status:    valid ? 'valid' : 'invalid',\n  _validated: new Date().toISOString(),\n};"
-      }
+      "parameters": { "batchSize": 1, "options": {} }
     },
 
     {
-      "id": "update-validation",
-      "name": "✅ Save Validation Result",
+      "id": "apollo-enrich",
+      "name": "🔮 Apollo — People Match",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [720, 100],
       "parameters": {
-        "method": "PATCH",
-        "url": "=https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads?id=eq.{{ $json.id }}",
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/people/match",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ validation_status: $json._status, validator_used: 'format_check', validated_at: $json._validated, updated_at: new Date().toISOString() }) }}",
+        "jsonBody": "={{ JSON.stringify({ first_name: $json.first_name, last_name: $json.last_name, email: $json.email, organization_name: $json.organization || $json.district_name, domain: ($json.website || '').replace(/https?:\\/\\//, '').split('/')[0] || undefined, reveal_personal_emails: false }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-api-key",    "value": "YOUR_APOLLO_API_KEY" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "save-enrichment",
+      "name": "✅ Save Apollo Enrichment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 100],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads?id=eq.{{ $('Loop Enrich — 1 at a time').item.json.id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: ($json.person || {}).title || null, linkedin_url: ($json.person || {}).linkedin_url || null, advisor_name: ($json.person || {}).name || null, enrichment_status: $json.person ? 'enriched' : 'not_found', enriched_at: new Date().toISOString(), updated_at: new Date().toISOString() }) }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -83,11 +103,118 @@
     },
 
     {
+      "id": "enrich-done",
+      "name": "Enrichment Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 220],
+      "parameters": {}
+    },
+
+    {
+      "id": "fetch-unvalidated",
+      "name": "📥 Get 100 Unvalidated Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 400],
+      "parameters": {
+        "method": "GET",
+        "url": "https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "enrichment_status",  "value": "eq.enriched" },
+            { "name": "validation_status",  "value": "is.null" },
+            { "name": "suppressed",         "value": "eq.false" },
+            { "name": "select",             "value": "id,first_name,last_name,email,organization,district_name" },
+            { "name": "limit",              "value": "100" },
+            { "name": "order",              "value": "created_at.asc" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Authorization", "value": "Bearer sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "loop-validate",
+      "name": "Loop Validate — 1 at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [480, 400],
+      "parameters": { "batchSize": 1, "options": {} }
+    },
+
+    {
+      "id": "clay-validate",
+      "name": "🟠 Clay — Verify Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 400],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.clay.com/v3/sources/verify-email/run",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ email: $json.email, firstName: $json.first_name, lastName: $json.last_name, companyName: $json.organization || $json.district_name }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Authorization", "value": "Bearer YOUR_CLAY_API_KEY" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "save-validation",
+      "name": "✅ Save Clay Validation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 400],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads?id=eq.{{ $('Loop Validate — 1 at a time').item.json.id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ validation_status: ($json.status === 'valid' || $json.result === 'valid' || $json.deliverable === true) ? 'valid' : 'invalid', validator_used: 'clay', validated_at: new Date().toISOString(), updated_at: new Date().toISOString() }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Authorization", "value": "Bearer sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "validate-done",
+      "name": "Validation Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 520],
+      "parameters": {}
+    },
+
+    {
       "id": "fetch-unsent",
       "name": "📥 Get 100 Valid Unsent Leads",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [240, 500],
+      "position": [240, 700],
       "parameters": {
         "method": "GET",
         "url": "https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads",
@@ -116,14 +243,11 @@
 
     {
       "id": "loop-send",
-      "name": "Loop — 1 at a time",
+      "name": "Loop Send — 1 at a time",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
-      "position": [480, 500],
-      "parameters": {
-        "batchSize": 1,
-        "options": {}
-      }
+      "position": [480, 700],
+      "parameters": { "batchSize": 1, "options": {} }
     },
 
     {
@@ -131,7 +255,7 @@
       "name": "📧 Send via SpaceMail",
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
-      "position": [720, 500],
+      "position": [720, 700],
       "parameters": {
         "fromEmail": "benefitcheck@benefitview.us",
         "toEmail": "={{ $json.email }}",
@@ -145,17 +269,17 @@
     },
 
     {
-      "id": "update-sent",
+      "id": "mark-sent",
       "name": "✅ Mark Lead Sent",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [960, 500],
+      "position": [960, 700],
       "parameters": {
         "method": "PATCH",
-        "url": "=https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads?id=eq.{{ $('Loop — 1 at a time').item.json.id }}",
+        "url": "=https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads?id=eq.{{ $('Loop Send — 1 at a time').item.json.id }}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ send_status: 'sent', email_status: 'sent', sender_account: 'benefitcheck@benefitview.us', sent_at: new Date().toISOString(), send_attempt_count: ($('Loop — 1 at a time').item.json.send_attempt_count || 0) + 1, updated_at: new Date().toISOString() }) }}",
+        "jsonBody": "={{ JSON.stringify({ send_status: 'sent', email_status: 'sent', sender_account: 'benefitcheck@benefitview.us', sent_at: new Date().toISOString(), send_attempt_count: ($('Loop Send — 1 at a time').item.json.send_attempt_count || 0) + 1, updated_at: new Date().toISOString() }) }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -170,11 +294,11 @@
     },
 
     {
-      "id": "done-send",
-      "name": "Done",
+      "id": "send-done",
+      "name": "Send Done",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [1200, 620],
+      "position": [1200, 820],
       "parameters": {}
     }
   ],
@@ -182,34 +306,62 @@
   "connections": {
     "Every 30 Minutes": {
       "main": [[
-        { "node": "📥 Get 100 Unvalidated Leads", "type": "main", "index": 0 },
+        { "node": "📥 Get 100 Unenriched Leads",   "type": "main", "index": 0 },
+        { "node": "📥 Get 100 Unvalidated Leads",   "type": "main", "index": 0 },
         { "node": "📥 Get 100 Valid Unsent Leads",  "type": "main", "index": 0 }
       ]]
     },
+
+    "📥 Get 100 Unenriched Leads": {
+      "main": [[{ "node": "Loop Enrich — 1 at a time", "type": "main", "index": 0 }]]
+    },
+    "Loop Enrich — 1 at a time": {
+      "main": [
+        [{ "node": "🔮 Apollo — People Match",  "type": "main", "index": 0 }],
+        [{ "node": "Enrichment Done",            "type": "main", "index": 0 }]
+      ]
+    },
+    "🔮 Apollo — People Match": {
+      "main": [[{ "node": "✅ Save Apollo Enrichment", "type": "main", "index": 0 }]]
+    },
+    "✅ Save Apollo Enrichment": {
+      "main": [[{ "node": "Loop Enrich — 1 at a time", "type": "main", "index": 0 }]]
+    },
+
     "📥 Get 100 Unvalidated Leads": {
-      "main": [[{ "node": "🔍 Validate Email", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Loop Validate — 1 at a time", "type": "main", "index": 0 }]]
     },
-    "🔍 Validate Email": {
-      "main": [[{ "node": "✅ Save Validation Result", "type": "main", "index": 0 }]]
+    "Loop Validate — 1 at a time": {
+      "main": [
+        [{ "node": "🟠 Clay — Verify Email", "type": "main", "index": 0 }],
+        [{ "node": "Validation Done",        "type": "main", "index": 0 }]
+      ]
     },
+    "🟠 Clay — Verify Email": {
+      "main": [[{ "node": "✅ Save Clay Validation", "type": "main", "index": 0 }]]
+    },
+    "✅ Save Clay Validation": {
+      "main": [[{ "node": "Loop Validate — 1 at a time", "type": "main", "index": 0 }]]
+    },
+
     "📥 Get 100 Valid Unsent Leads": {
-      "main": [[{ "node": "Loop — 1 at a time", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Loop Send — 1 at a time", "type": "main", "index": 0 }]]
     },
-    "Loop — 1 at a time": {
+    "Loop Send — 1 at a time": {
       "main": [
         [{ "node": "📧 Send via SpaceMail", "type": "main", "index": 0 }],
-        [{ "node": "Done",                  "type": "main", "index": 0 }]
+        [{ "node": "Send Done",             "type": "main", "index": 0 }]
       ]
     },
     "📧 Send via SpaceMail": {
       "main": [[{ "node": "✅ Mark Lead Sent", "type": "main", "index": 0 }]]
     },
     "✅ Mark Lead Sent": {
-      "main": [[{ "node": "Loop — 1 at a time", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Loop Send — 1 at a time", "type": "main", "index": 0 }]]
     }
   },
 
   "active": false,
   "settings": { "executionOrder": "v1" },
-  "tags": ["leadforce", "email", "automation"]
+  "tags": ["leadforce", "apollo", "clay", "email", "automation"]
 }
