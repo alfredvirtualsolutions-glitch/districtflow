@@ -168,7 +168,7 @@
         "headerParameters": {
           "parameters": [
             { "name": "Content-Type",  "value": "application/json" },
-            { "name": "Authorization", "value": "Bearer YOUR_CLAY_API_KEY" }
+            { "name": "Authorization", "value": "Bearer a120d6dc8bd37437882a" }
           ]
         },
         "options": {}
