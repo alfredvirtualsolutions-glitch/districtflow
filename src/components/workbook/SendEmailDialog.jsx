@@ -6,15 +6,26 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Mail, Loader2, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+
+const SMTP_ACCOUNTS = [
+  "benefitcheck@benefitview.us",
+  "clarityreview@benefitview.us",
+  "notification@benefitview.us",
+];
+
+const DEFAULT_FROM_NAME = "Ryan Cahill";
 
 export default function SendEmailDialog({ districts = [] }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState("compose"); // compose | sending | results
   const [form, setForm] = useState({
-    from_name: "",
-    from_email: "",
+    from_name: DEFAULT_FROM_NAME,
+    from_email: SMTP_ACCOUNTS[0],
     subject: "",
     body: "",
   });
@@ -41,11 +52,10 @@ export default function SendEmailDialog({ districts = [] }) {
         })),
         subject: form.subject,
         body: form.body,
-        from_name: form.from_name || undefined,
-        from_email: form.from_email || undefined,
+        from_name: form.from_name || DEFAULT_FROM_NAME,
+        from_email: form.from_email,
       };
 
-      // Simulate progress while waiting (SMTP sends take time)
       const progressInterval = setInterval(() => {
         setProgress((p) => Math.min(p + Math.random() * 15, 90));
       }, 600);
@@ -99,22 +109,33 @@ export default function SendEmailDialog({ districts = [] }) {
               </div>
             )}
 
+            {/* Sender identity */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">From Name (optional)</Label>
+                <Label className="text-xs text-muted-foreground">Sender Name</Label>
                 <Input
                   value={form.from_name}
                   onChange={(e) => setForm({ ...form, from_name: e.target.value })}
-                  placeholder="Your Name"
+                  placeholder="Ryan Cahill"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">From Email (optional)</Label>
-                <Input
+                <Label className="text-xs text-muted-foreground">Send From Account</Label>
+                <Select
                   value={form.from_email}
-                  onChange={(e) => setForm({ ...form, from_email: e.target.value })}
-                  placeholder="you@domain.com"
-                />
+                  onValueChange={(v) => setForm({ ...form, from_email: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SMTP_ACCOUNTS.map((acct) => (
+                      <SelectItem key={acct} value={acct}>
+                        {acct}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
@@ -132,7 +153,7 @@ export default function SendEmailDialog({ districts = [] }) {
               <Textarea
                 value={form.body}
                 onChange={(e) => setForm({ ...form, body: e.target.value })}
-                placeholder={"Hi,\n\nI'm reaching out to {{district_name}} in {{state}}...\n\nBest,\n[Your Name]"}
+                placeholder={"Hi,\n\nI'm reaching out to {{district_name}} in {{state}}...\n\nBest,\nRyan Cahill"}
                 rows={10}
                 className="font-mono text-sm resize-y"
               />
@@ -160,7 +181,7 @@ export default function SendEmailDialog({ districts = [] }) {
             <div className="space-y-2">
               <p className="font-semibold">Sending emails…</p>
               <p className="text-sm text-muted-foreground">
-                Sending to {recipients.length} recipients via SpaceMail
+                Sending to {recipients.length} recipients from {form.from_email}
               </p>
             </div>
             <div className="w-full bg-muted rounded-full h-2">

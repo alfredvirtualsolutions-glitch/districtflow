@@ -1,6 +1,18 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 import nodemailer from 'npm:nodemailer@6';
 
+// Resolves SMTP credentials for a given from_email by checking up to 5
+// indexed env var pairs: SMTP_ACCOUNT_1_EMAIL / SMTP_ACCOUNT_1_PASS, etc.
+function resolveAccount(fromEmail: string | undefined) {
+  for (let i = 1; i <= 5; i++) {
+    const email = Deno.env.get(`SMTP_ACCOUNT_${i}_EMAIL`);
+    const pass  = Deno.env.get(`SMTP_ACCOUNT_${i}_PASS`);
+    if (!email || !pass) continue;
+    if (!fromEmail || email === fromEmail) return { email, pass };
+  }
+  return null;
+}
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -21,22 +33,23 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Body is required' }, { status: 400 });
     }
 
-    const smtpHost = Deno.env.get('SMTP_HOST') || 'mail.privateemail.com';
-    const smtpPort = parseInt(Deno.env.get('SMTP_PORT') || '465');
-    const smtpUser = Deno.env.get('SMTP_USER');
-    const smtpPass = Deno.env.get('SMTP_PASS');
-    const defaultFromName = Deno.env.get('SMTP_FROM_NAME') || from_name || 'DistrictFlow';
-    const defaultFromEmail = Deno.env.get('SMTP_FROM_EMAIL') || from_email || smtpUser;
-
-    if (!smtpUser || !smtpPass) {
-      return Response.json({ error: 'SMTP credentials not configured' }, { status: 500 });
+    const account = resolveAccount(from_email);
+    if (!account) {
+      return Response.json(
+        { error: 'No matching SMTP account configured for that address' },
+        { status: 500 },
+      );
     }
+
+    const smtpHost = Deno.env.get('SMTP_HOST') || 'mail.spacemail.com';
+    const smtpPort = parseInt(Deno.env.get('SMTP_PORT') || '465');
+    const senderName = from_name || Deno.env.get('SMTP_FROM_NAME') || 'Ryan Cahill';
 
     const transporter = nodemailer.createTransport({
       host: smtpHost,
       port: smtpPort,
       secure: smtpPort === 465,
-      auth: { user: smtpUser, pass: smtpPass },
+      auth: { user: account.email, pass: account.pass },
     });
 
     const sent: string[] = [];
@@ -56,7 +69,7 @@ Deno.serve(async (req) => {
           .replace(/\n/g, '<br>');
 
         await transporter.sendMail({
-          from: `"${from_name || defaultFromName}" <${from_email || defaultFromEmail}>`,
+          from: `"${senderName}" <${account.email}>`,
           to: recipient.email,
           subject,
           text: personalizedBody,
@@ -64,7 +77,6 @@ Deno.serve(async (req) => {
         });
 
         sent.push(recipient.email);
-        // Brief pause to avoid rate limiting
         await new Promise((r) => setTimeout(r, 250));
       } catch (err) {
         failed.push({ email: recipient.email, error: err.message });
