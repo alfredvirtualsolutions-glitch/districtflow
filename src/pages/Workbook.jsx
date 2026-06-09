@@ -11,6 +11,7 @@ import AddDistrictDialog from "../components/workbook/AddDistrictDialog";
 import StatsBar from "../components/workbook/StatsBar";
 import ExportButton from "../components/workbook/ExportButton";
 import CSVUploadDialog from "../components/workbook/CSVUploadDialog";
+import SendEmailDialog from "../components/workbook/SendEmailDialog";
 
 export default function Workbook() {
   const [search, setSearch] = useState("");
@@ -97,6 +98,7 @@ export default function Workbook() {
               </Button>
             </Link>
             <ExportButton districts={filtered} />
+            <SendEmailDialog districts={filtered} />
             <CSVUploadDialog />
             <AddDistrictDialog />
           </div>
