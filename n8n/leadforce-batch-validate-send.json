@@ -1,0 +1,215 @@
+{
+  "name": "Leadforce — Validate, Enrich & Send (every 30 min)",
+  "nodes": [
+    {
+      "id": "trigger-30min",
+      "name": "Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300],
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 30 }]
+        }
+      }
+    },
+
+    {
+      "id": "fetch-unvalidated",
+      "name": "📥 Get 100 Unvalidated Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 100],
+      "parameters": {
+        "method": "GET",
+        "url": "https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "validation_status", "value": "is.null" },
+            { "name": "suppressed",         "value": "eq.false" },
+            { "name": "select",             "value": "id,email,first_name,last_name,district_name,state" },
+            { "name": "limit",              "value": "100" },
+            { "name": "order",              "value": "created_at.asc" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Authorization", "value": "Bearer sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "validate-code",
+      "name": "🔍 Validate Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 100],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ─────────────────────────────────────────────────────────────────\n// Basic format check — swap the regex block with a real API call:\n//   NeverBounce:  GET https://api.neverbounce.com/v4/single/check?key=KEY&email=EMAIL\n//   ZeroBounce:   GET https://api.zerobounce.net/v2/validate?api_key=KEY&email=EMAIL\n//   Hunter:       GET https://api.hunter.io/v2/email-verifier?email=EMAIL&api_key=KEY\n// ─────────────────────────────────────────────────────────────────\nconst email = ($input.item.json.email || '').trim();\nconst valid = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);\nreturn {\n  ...$input.item.json,\n  _status:    valid ? 'valid' : 'invalid',\n  _validated: new Date().toISOString(),\n};"
+      }
+    },
+
+    {
+      "id": "update-validation",
+      "name": "✅ Save Validation Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 100],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads?id=eq.{{ $json.id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ validation_status: $json._status, validator_used: 'format_check', validated_at: $json._validated, updated_at: new Date().toISOString() }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Authorization", "value": "Bearer sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "fetch-unsent",
+      "name": "📥 Get 100 Valid Unsent Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 500],
+      "parameters": {
+        "method": "GET",
+        "url": "https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "validation_status", "value": "eq.valid" },
+            { "name": "send_status",       "value": "is.null" },
+            { "name": "suppressed",        "value": "eq.false" },
+            { "name": "select",            "value": "id,email,first_name,last_name,district_name,state,subject_line,email_body,sequence_day,send_attempt_count,priority_score" },
+            { "name": "limit",             "value": "100" },
+            { "name": "order",             "value": "priority_score.desc.nullslast,created_at.asc" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Authorization", "value": "Bearer sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "loop-send",
+      "name": "Loop — 1 at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [480, 500],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+
+    {
+      "id": "send-email",
+      "name": "📧 Send via SpaceMail",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [720, 500],
+      "parameters": {
+        "fromEmail": "benefitcheck@benefitview.us",
+        "toEmail": "={{ $json.email }}",
+        "subject": "={{ $json.subject_line || ('Reaching Out — ' + ($json.district_name || $json.first_name || '')) }}",
+        "message": "={{ $json.email_body || ('Hello ' + ($json.first_name || '') + ',\\n\\nI wanted to reach out regarding your district...\\n\\nBest,\\nRyan Cahill') }}",
+        "options": { "appendAttribution": false }
+      },
+      "credentials": {
+        "smtp": { "id": "", "name": "SpaceMail SMTP" }
+      }
+    },
+
+    {
+      "id": "update-sent",
+      "name": "✅ Mark Lead Sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 500],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sxbncuevzhtoxuepodhg.supabase.co/rest/v1/leads?id=eq.{{ $('Loop — 1 at a time').item.json.id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ send_status: 'sent', email_status: 'sent', sender_account: 'benefitcheck@benefitview.us', sent_at: new Date().toISOString(), send_attempt_count: ($('Loop — 1 at a time').item.json.send_attempt_count || 0) + 1, updated_at: new Date().toISOString() }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Authorization", "value": "Bearer sb_publishable_3DvJH1l1lFviyRT0vQ7E5Q_VzIcswBX" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=minimal" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "done-send",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 620],
+      "parameters": {}
+    }
+  ],
+
+  "connections": {
+    "Every 30 Minutes": {
+      "main": [[
+        { "node": "📥 Get 100 Unvalidated Leads", "type": "main", "index": 0 },
+        { "node": "📥 Get 100 Valid Unsent Leads",  "type": "main", "index": 0 }
+      ]]
+    },
+    "📥 Get 100 Unvalidated Leads": {
+      "main": [[{ "node": "🔍 Validate Email", "type": "main", "index": 0 }]]
+    },
+    "🔍 Validate Email": {
+      "main": [[{ "node": "✅ Save Validation Result", "type": "main", "index": 0 }]]
+    },
+    "📥 Get 100 Valid Unsent Leads": {
+      "main": [[{ "node": "Loop — 1 at a time", "type": "main", "index": 0 }]]
+    },
+    "Loop — 1 at a time": {
+      "main": [
+        [{ "node": "📧 Send via SpaceMail", "type": "main", "index": 0 }],
+        [{ "node": "Done",                  "type": "main", "index": 0 }]
+      ]
+    },
+    "📧 Send via SpaceMail": {
+      "main": [[{ "node": "✅ Mark Lead Sent", "type": "main", "index": 0 }]]
+    },
+    "✅ Mark Lead Sent": {
+      "main": [[{ "node": "Loop — 1 at a time", "type": "main", "index": 0 }]]
+    }
+  },
+
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": ["leadforce", "email", "automation"]
+}
