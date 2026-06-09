@@ -16,6 +16,8 @@ const SMTP_ACCOUNTS = [
   "benefitcheck@benefitview.us",
   "clarityreview@benefitview.us",
   "notification@benefitview.us",
+  "educators@403bclarity.org",
+  "ryan@403bclarity.org",
 ];
 
 const DEFAULT_FROM_NAME = "Ryan Cahill";

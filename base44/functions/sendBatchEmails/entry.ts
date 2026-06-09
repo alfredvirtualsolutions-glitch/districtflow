@@ -1,14 +1,21 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 import nodemailer from 'npm:nodemailer@6';
 
-// Resolves SMTP credentials for a given from_email by checking up to 5
-// indexed env var pairs: SMTP_ACCOUNT_1_EMAIL / SMTP_ACCOUNT_1_PASS, etc.
+// Resolves SMTP credentials for a given from_email by checking up to 10
+// indexed env var groups: SMTP_ACCOUNT_N_EMAIL / SMTP_ACCOUNT_N_PASS and
+// optional SMTP_ACCOUNT_N_FROM (alias address to use in the From header).
+// Returns { authUser, pass, fromAddress } where fromAddress is the address
+// that appears in the From header (may differ from the SMTP auth user).
 function resolveAccount(fromEmail: string | undefined) {
-  for (let i = 1; i <= 5; i++) {
-    const email = Deno.env.get(`SMTP_ACCOUNT_${i}_EMAIL`);
-    const pass  = Deno.env.get(`SMTP_ACCOUNT_${i}_PASS`);
-    if (!email || !pass) continue;
-    if (!fromEmail || email === fromEmail) return { email, pass };
+  for (let i = 1; i <= 10; i++) {
+    const authUser = Deno.env.get(`SMTP_ACCOUNT_${i}_EMAIL`);
+    const pass     = Deno.env.get(`SMTP_ACCOUNT_${i}_PASS`);
+    if (!authUser || !pass) continue;
+    const fromAlias = Deno.env.get(`SMTP_ACCOUNT_${i}_FROM`);
+    const fromAddress = fromAlias || authUser;
+    if (!fromEmail || fromAddress === fromEmail || authUser === fromEmail) {
+      return { authUser, pass, fromAddress };
+    }
   }
   return null;
 }
@@ -49,7 +56,7 @@ Deno.serve(async (req) => {
       host: smtpHost,
       port: smtpPort,
       secure: smtpPort === 465,
-      auth: { user: account.email, pass: account.pass },
+      auth: { user: account.authUser, pass: account.pass },
     });
 
     const sent: string[] = [];
@@ -74,7 +81,7 @@ Deno.serve(async (req) => {
           .replace(/\n/g, '<br>');
 
         await transporter.sendMail({
-          from: `"${senderName}" <${account.email}>`,
+          from: `"${senderName}" <${from_email || account.fromAddress}>`,
           to: recipient.email,
           subject: personalizedSubject,
           text: personalizedBody,
