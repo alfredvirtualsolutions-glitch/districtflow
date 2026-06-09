@@ -15,6 +15,7 @@ import ResetPassword from '@/pages/ResetPassword';
 import Workbook from '@/pages/Workbook';
 import KanbanBoard from '@/pages/KanbanBoard';
 import ApexDatabase from '@/pages/ApexDatabase';
+import CRM from '@/pages/CRM';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -50,6 +51,7 @@ const AuthenticatedApp = () => {
         <Route path="/" element={<Workbook />} />
         <Route path="/kanban" element={<KanbanBoard />} />
         <Route path="/apex" element={<ApexDatabase />} />
+        <Route path="/crm" element={<CRM />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
