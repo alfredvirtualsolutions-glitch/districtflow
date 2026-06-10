@@ -37,9 +37,10 @@ Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
    - `CRAWLER_SECRET` — shared secret the crawler sends as
      `X-Crawler-Secret` (same secret used by `crawlerIngest`)
 4. In n8n, add a **Postgres** credential named `Neon CRM` pointing at the
-   same `NEON_DATABASE_URL`, and import
-   `n8n/leadforce-neon-pipeline.json`. Set `APOLLO_API_KEY` and
-   `CLAY_API_KEY` in the n8n environment.
+   same `NEON_DATABASE_URL`, and an **SMTP** credential named
+   `SpaceMail SMTP`. Import `n8n/leadforce-send-campaign.json` to start
+   sending to qualified, validated, personalized leads on a schedule (every
+   15 minutes, respecting `client_profiles.daily_send_limit`).
 
 ## Tables
 
@@ -88,6 +89,32 @@ Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
   `suppressed`, `conflict_review`, `unsubscribed`, `follow_up_due`) and new
   `task_status` values (`draft`, `ready`, `scheduled`, `sent`, `paused`,
   `replied`, `suppressed`) support the full status-movement rules.
+
+## n8n workflows
+
+- **`leadforce-send-campaign.json`** — runs every 15 minutes. Selects
+  `campaign_leads` that are `status = 'new'`, `sequence_status =
+  'not_started'`, on an active campaign, with a validated email
+  (`leads.email_valid = 'valid'`) and existing personalization
+  (`email_subject` / `email_body`), skipping anything in
+  `suppression_list`. Sends via SpaceMail SMTP, then logs the send to
+  `sequence_tasks` (`task_type = 'email_send'`, `status = 'sent'`),
+  advances `campaign_leads` to `status = 'contacted'` /
+  `sequence_status = 'active'`, and records an `email_events` row. Send
+  failures are logged to `sequence_tasks` (`status = 'failed'`,
+  `error_message`) and `email_events` (`event_type = 'failed'`) instead of
+  retrying. The batch size per run is capped at 10 and further capped by
+  `client_profiles.daily_send_limit` (defaults to 50/day if unset).
+
+  As of this writing all 3,035 leads / 2,976 `campaign_leads` rows for the
+  "CA K-12 IRMAA Awareness" campaign are already enriched, validated, and
+  personalized — this workflow is the only thing standing between them and
+  outreach.
+
+- **Follow-up (not yet built)**: enrichment (Apollo), validation (Clay),
+  and qualification workflows for *new* leads coming in from the
+  multicrawler, targeting the real `leads` / `campaign_leads` schema (the
+  current lead set required none of this — it arrived pre-enriched).
 
 ## Crawler ingest
 
