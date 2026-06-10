@@ -113,6 +113,23 @@ Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
 
 ## n8n workflows
 
+> **`leadforce-batch-validate-send.json` is deprecated / superseded.** It
+> predates the Neon CRM and queries a Supabase `leads` table directly via
+> PostgREST (`enrichment_status`, `validation_status`, `send_status`,
+> `suppressed`, `organization`, etc.) — columns/table that don't exist in
+> Supabase under the current architecture (`leads` lives in Neon; Supabase
+> only holds `school_districts`). If this workflow is active in n8n, its
+> "Get 100 Unenriched/Unvalidated/Valid Unsent Leads" nodes will error or
+> return empty results. It has been replaced by
+> `leadforce-enrich-validate-qualify.json` and
+> `leadforce-send-campaign.json` below — deactivate the old workflow in n8n
+> and import these two instead.
+>
+> It also has an Apollo API key and a Clay bearer token hardcoded in
+> plaintext (committed on `main`). **Rotate both keys** — they should never
+> live in a repo file; n8n credentials belong in n8n's credential store,
+> referenced by name only (as the two workflows below do).
+
 - **`leadforce-send-campaign.json`** — runs every 15 minutes. Selects
   `campaign_leads` that are `status = 'new'`, `sequence_status =
   'not_started'`, on an active campaign, with a validated email
