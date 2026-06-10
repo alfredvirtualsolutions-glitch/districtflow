@@ -1,0 +1,316 @@
+{
+  "name": "Leadforce (Neon CRM) — Enrich (Apollo) → Validate (Clay) → Qualify → Send (SpaceMail) every 30 min",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 460],
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 30 }]
+        }
+      }
+    },
+
+    {
+      "id": "fetch-unenriched",
+      "name": "📥 Get Unenriched Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [240, 100],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, first_name, last_name, email, organization, district_name, state, website FROM leads WHERE enrichment_status IS NULL AND suppressed = false ORDER BY created_at ASC LIMIT 100",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "loop-enrich",
+      "name": "Loop Enrich — 1 at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [480, 100],
+      "parameters": { "batchSize": 1, "options": {} }
+    },
+
+    {
+      "id": "apollo-enrich",
+      "name": "🔮 Apollo — People Match",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 100],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/people/match",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ first_name: $json.first_name, last_name: $json.last_name, email: $json.email, organization_name: $json.organization || $json.district_name, domain: ($json.website || '').replace(/https?:\\/\\//, '').split('/')[0] || undefined, reveal_personal_emails: false }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-api-key", "value": "={{ $env.APOLLO_API_KEY }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "save-enrichment",
+      "name": "✅ Save Apollo Enrichment + Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [960, 100],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE leads SET\n    title = $2,\n    linkedin_url = $3,\n    advisor_name = $4,\n    enrichment_status = $5,\n    enriched_at = now()\n  WHERE id = $1\n  RETURNING id\n)\nINSERT INTO pipeline_logs (stage, lead_id, status, detail)\nSELECT 'enrichment', id, 'success', $6::jsonb FROM updated",
+        "options": {
+          "queryReplacement": "={{ $('Loop Enrich — 1 at a time').item.json.id }}, ={{ ($json.person || {}).title || null }}, ={{ ($json.person || {}).linkedin_url || null }}, ={{ ($json.person || {}).name || null }}, ={{ $json.person ? 'enriched' : 'not_found' }}, ={{ JSON.stringify({ person_found: !!$json.person }) }}"
+        }
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "enrich-done",
+      "name": "Enrichment Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 220],
+      "parameters": {}
+    },
+
+    {
+      "id": "fetch-unvalidated",
+      "name": "📥 Get Unvalidated Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [240, 400],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, first_name, last_name, email, organization, district_name FROM leads WHERE enrichment_status = 'enriched' AND validation_status IS NULL AND suppressed = false ORDER BY created_at ASC LIMIT 100",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "loop-validate",
+      "name": "Loop Validate — 1 at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [480, 400],
+      "parameters": { "batchSize": 1, "options": {} }
+    },
+
+    {
+      "id": "clay-validate",
+      "name": "🟠 Clay — Verify Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 400],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.clay.com/v3/sources/verify-email/run",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ email: $json.email, firstName: $json.first_name, lastName: $json.last_name, companyName: $json.organization || $json.district_name }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.CLAY_API_KEY }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "save-validation",
+      "name": "✅ Save Clay Validation + Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [960, 400],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE leads SET\n    validation_status = $2,\n    validator_used = 'clay',\n    validated_at = now()\n  WHERE id = $1\n  RETURNING id\n)\nINSERT INTO pipeline_logs (stage, lead_id, status, detail)\nSELECT 'validation', id, 'success', $3::jsonb FROM updated",
+        "options": {
+          "queryReplacement": "={{ $('Loop Validate — 1 at a time').item.json.id }}, ={{ ($json.status === 'valid' || $json.result === 'valid' || $json.deliverable === true) ? 'valid' : 'invalid' }}, ={{ JSON.stringify({ raw_status: $json.status || $json.result || null, deliverable: $json.deliverable || null }) }}"
+        }
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "validate-done",
+      "name": "Validation Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 520],
+      "parameters": {}
+    },
+
+    {
+      "id": "qualify-leads",
+      "name": "🏁 Qualify Validated Leads + Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [240, 700],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE leads SET\n    qualified = TRUE,\n    qualified_at = now()\n  WHERE validation_status = 'valid'\n    AND enrichment_status = 'enriched'\n    AND qualified = FALSE\n    AND suppressed = FALSE\n  RETURNING id\n)\nINSERT INTO pipeline_logs (stage, lead_id, status, detail)\nSELECT 'qualification', id, 'success', '{\"reason\":\"validated_and_enriched\"}'::jsonb FROM updated",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "fetch-unsent",
+      "name": "📥 Get Qualified Unsent Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [240, 1000],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, email, first_name, last_name, district_name, state, subject_line, email_body, sequence_day, send_attempt_count, priority_score FROM leads WHERE qualified = true AND send_status IS NULL AND suppressed = false ORDER BY priority_score DESC NULLS LAST, created_at ASC LIMIT 100",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "loop-send",
+      "name": "Loop Send — 1 at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [480, 1000],
+      "parameters": { "batchSize": 1, "options": {} }
+    },
+
+    {
+      "id": "send-email",
+      "name": "📧 Send via SpaceMail",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [720, 1000],
+      "parameters": {
+        "fromEmail": "benefitcheck@benefitview.us",
+        "toEmail": "={{ $json.email }}",
+        "subject": "={{ $json.subject_line || ('Complimentary Pension Review — ' + ($json.district_name || '')) }}",
+        "message": "={{ $json.email_body || ('Hi ' + ($json.first_name || '') + ',\\n\\nMy name is Ryan Cahill and I help educate CalSTRS and CalPERS employees with regards to the California State Teachers Retirement System Pension Benefits Plan.\\n\\nI am currently meeting virtually with educators in ' + ($json.district_name || '') + '.\\n\\nDuring our meeting, we will cover the following agenda items:\\n● When is the soonest you are eligible to retire?\\n● How much is your pension going to pay you?\\n● Do you qualify for social security benefits?\\n● Do you get both a pension and social security?\\n● How much income will your 403b or 457 provide you in retirement?\\n\\nHere is my calendar link to select a day & time that works best for you.\\n\\nComplimentary Pension Review\\n\\nThis service is part of a state-approved financial education program for school employees. While we\\'re not affiliated with CalSTRS or your district, we\\'re here to help you make informed, confident decisions about your retirement.\\n\\nI look forward to helping you!\\n\\nRyan Cahill\\nPension & Retirement Specialist\\nPhone No: 614-806-0233\\nCA Lic. 0156729\\nryan@meetryancahill.com') }}",
+        "options": { "appendAttribution": false }
+      },
+      "credentials": {
+        "smtp": { "id": "", "name": "SpaceMail SMTP" }
+      }
+    },
+
+    {
+      "id": "mark-sent",
+      "name": "✅ Mark Lead Sent + Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [960, 1000],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH updated AS (\n  UPDATE leads SET\n    send_status = 'sent',\n    email_status = 'sent',\n    sender_account = 'benefitcheck@benefitview.us',\n    sent_at = now(),\n    send_attempt_count = send_attempt_count + 1\n  WHERE id = $1\n  RETURNING id\n)\nINSERT INTO pipeline_logs (stage, lead_id, status, detail)\nSELECT 'send', id, 'success', '{\"sender_account\":\"benefitcheck@benefitview.us\"}'::jsonb FROM updated",
+        "options": {
+          "queryReplacement": "={{ $('Loop Send — 1 at a time').item.json.id }}"
+        }
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "send-done",
+      "name": "Send Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 1120],
+      "parameters": {}
+    }
+  ],
+
+  "connections": {
+    "Every 30 Minutes": {
+      "main": [[
+        { "node": "📥 Get Unenriched Leads", "type": "main", "index": 0 },
+        { "node": "📥 Get Unvalidated Leads", "type": "main", "index": 0 },
+        { "node": "🏁 Qualify Validated Leads + Log", "type": "main", "index": 0 },
+        { "node": "📥 Get Qualified Unsent Leads", "type": "main", "index": 0 }
+      ]]
+    },
+
+    "📥 Get Unenriched Leads": {
+      "main": [[{ "node": "Loop Enrich — 1 at a time", "type": "main", "index": 0 }]]
+    },
+    "Loop Enrich — 1 at a time": {
+      "main": [
+        [{ "node": "🔮 Apollo — People Match", "type": "main", "index": 0 }],
+        [{ "node": "Enrichment Done", "type": "main", "index": 0 }]
+      ]
+    },
+    "🔮 Apollo — People Match": {
+      "main": [[{ "node": "✅ Save Apollo Enrichment + Log", "type": "main", "index": 0 }]]
+    },
+    "✅ Save Apollo Enrichment + Log": {
+      "main": [[{ "node": "Loop Enrich — 1 at a time", "type": "main", "index": 0 }]]
+    },
+
+    "📥 Get Unvalidated Leads": {
+      "main": [[{ "node": "Loop Validate — 1 at a time", "type": "main", "index": 0 }]]
+    },
+    "Loop Validate — 1 at a time": {
+      "main": [
+        [{ "node": "🟠 Clay — Verify Email", "type": "main", "index": 0 }],
+        [{ "node": "Validation Done", "type": "main", "index": 0 }]
+      ]
+    },
+    "🟠 Clay — Verify Email": {
+      "main": [[{ "node": "✅ Save Clay Validation + Log", "type": "main", "index": 0 }]]
+    },
+    "✅ Save Clay Validation + Log": {
+      "main": [[{ "node": "Loop Validate — 1 at a time", "type": "main", "index": 0 }]]
+    },
+
+    "📥 Get Qualified Unsent Leads": {
+      "main": [[{ "node": "Loop Send — 1 at a time", "type": "main", "index": 0 }]]
+    },
+    "Loop Send — 1 at a time": {
+      "main": [
+        [{ "node": "📧 Send via SpaceMail", "type": "main", "index": 0 }],
+        [{ "node": "Send Done", "type": "main", "index": 0 }]
+      ]
+    },
+    "📧 Send via SpaceMail": {
+      "main": [[{ "node": "✅ Mark Lead Sent + Log", "type": "main", "index": 0 }]]
+    },
+    "✅ Mark Lead Sent + Log": {
+      "main": [[{ "node": "Loop Send — 1 at a time", "type": "main", "index": 0 }]]
+    }
+  },
+
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": ["leadforce", "neon", "apollo", "clay", "email", "automation"]
+}
