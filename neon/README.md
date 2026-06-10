@@ -49,6 +49,10 @@ Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
    qualified, validated, personalized leads on a schedule (every 15
    minutes, respecting `client_profiles.daily_send_limit`, rotating across
    the three mailboxes).
+5. Set `APOLLO_API_KEY` and `CLAY_API_KEY` in the n8n environment, and
+   import `n8n/leadforce-enrich-validate-qualify.json` to enrich, validate,
+   and qualify *new* leads from the multicrawler (every 30 minutes), so
+   they flow into `leadforce-send-campaign.json` automatically.
 
 ## Tables
 
@@ -138,10 +142,34 @@ Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
   personalized — this workflow is the only thing standing between them and
   outreach.
 
-- **Follow-up (not yet built)**: enrichment (Apollo), validation (Clay),
-  and qualification workflows for *new* leads coming in from the
-  multicrawler, targeting the real `leads` / `campaign_leads` schema (the
-  current lead set required none of this — it arrived pre-enriched).
+- **`leadforce-enrich-validate-qualify.json`** — runs every 30 minutes,
+  three branches feeding the send workflow above with *new* leads from the
+  multicrawler:
+  1. **Enrich**: leads with `enriched_at IS NULL` are matched against
+     Apollo People Match; `job_title`, `linkedin_url`, and `seniority` are
+     filled in (without clobbering existing values) and `enriched_at` is
+     stamped.
+  2. **Validate**: enriched leads with `email_valid IS NULL` are checked
+     via Clay's verify-email; `email_valid` (`valid`/`invalid`),
+     `email_status`, and `email_risk` are recorded.
+  3. **Qualify & personalize**: leads with `email_valid = 'valid'` and no
+     `email_subject` yet are checked against `client_profiles`
+     (`job_title` matches `allowed_job_titles` and not
+     `excluded_job_titles`, `state` in `active_states`) and
+     `suppression_list`. Qualifying leads get the same "Complimentary
+     Pension Review" email template (subject + body, with
+     `first_name`/`school_district` substituted) used for the existing
+     3,035 leads, stamped with `personalized_at`. A second query then
+     inserts a `campaign_leads` row (`status = 'new'`, `sequence_status =
+     'not_started'`) for every personalized lead not already on a
+     campaign, using `client_profiles.active_campaign_id` if set, else the
+     client's active campaign. New leads with no `client_id` are treated
+     as belonging to Ryan Cahill (the only current client).
+
+  All three queries are idempotent — re-running only touches leads that
+  haven't reached the next stage yet, so this workflow and
+  `leadforce-send-campaign.json` can run on independent schedules
+  indefinitely as the crawler feeds in new leads.
 
 ## Crawler ingest
 
