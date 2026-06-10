@@ -27,20 +27,28 @@ Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
    ```
    psql "$NEON_DATABASE_URL" -f neon/migrations/001_client_profiles.sql
    psql "$NEON_DATABASE_URL" -f neon/migrations/002_crm_extensions.sql
+   psql "$NEON_DATABASE_URL" -f neon/migrations/003_sender_pool.sql
    ```
-   Both migrations are idempotent (`IF NOT EXISTS` / `ON CONFLICT DO NOTHING`)
-   and purely additive — safe to re-run, and safe against a database that
-   already has data.
+   All three migrations are idempotent (`IF NOT EXISTS` / `ON CONFLICT DO
+   NOTHING` / `COALESCE`-guarded updates) and purely additive — safe to
+   re-run, and safe against a database that already has data.
 3. Set the following environment variables on the Base44 backend (for
    `neonLeadIngest`):
    - `NEON_DATABASE_URL` — Neon Postgres connection string
    - `CRAWLER_SECRET` — shared secret the crawler sends as
      `X-Crawler-Secret` (same secret used by `crawlerIngest`)
 4. In n8n, add a **Postgres** credential named `Neon CRM` pointing at the
-   same `NEON_DATABASE_URL`, and an **SMTP** credential named
-   `SpaceMail SMTP`. Import `n8n/leadforce-send-campaign.json` to start
-   sending to qualified, validated, personalized leads on a schedule (every
-   15 minutes, respecting `client_profiles.daily_send_limit`).
+   same `NEON_DATABASE_URL`, and three **SMTP** credentials (host
+   `mail.spacemail.com`, port `465` or `587`, SSL) — one per SpaceMail
+   mailbox in the sender pool, named exactly:
+   - `SpaceMail - benefitcheck@benefitview.us`
+   - `SpaceMail - clarityreview@benefitview.us`
+   - `SpaceMail - notification@benefitview.us`
+
+   Then import `n8n/leadforce-send-campaign.json` to start sending to
+   qualified, validated, personalized leads on a schedule (every 15
+   minutes, respecting `client_profiles.daily_send_limit`, rotating across
+   the three mailboxes).
 
 ## Tables
 
@@ -66,6 +74,15 @@ Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
   scope. The AI Worker must load this before processing any districts,
   schools, leads, or outreach, and must never act outside the scope defined
   here.
+
+### Added by `neon/migrations/003_sender_pool.sql`
+
+- **`client_profiles.sender_pool`** (`TEXT[]`) — the pool of SpaceMail
+  mailboxes the send-campaign workflow rotates across:
+  `benefitcheck@benefitview.us`, `clarityreview@benefitview.us`,
+  `notification@benefitview.us`. `sending_email`/`sending_domain` were
+  also backfilled to `benefitcheck@benefitview.us` / `benefitview.us` for
+  the `ryan-cahill` profile.
 
 ### Added by `neon/migrations/002_crm_extensions.sql`
 
@@ -97,14 +114,24 @@ Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
   'not_started'`, on an active campaign, with a validated email
   (`leads.email_valid = 'valid'`) and existing personalization
   (`email_subject` / `email_body`), skipping anything in
-  `suppression_list`. Sends via SpaceMail SMTP, then logs the send to
-  `sequence_tasks` (`task_type = 'email_send'`, `status = 'sent'`),
-  advances `campaign_leads` to `status = 'contacted'` /
-  `sequence_status = 'active'`, and records an `email_events` row. Send
-  failures are logged to `sequence_tasks` (`status = 'failed'`,
-  `error_message`) and `email_events` (`event_type = 'failed'`) instead of
-  retrying. The batch size per run is capped at 10 and further capped by
-  `client_profiles.daily_send_limit` (defaults to 50/day if unset).
+  `suppression_list`. Each lead is round-robin assigned a sender from
+  `client_profiles.sender_pool` (the three benefitview.us mailboxes), then
+  routed to the matching SpaceMail SMTP credential and sent. The send is
+  logged to `sequence_tasks` (`task_type = 'email_send'`, `status =
+  'sent'`), `campaign_leads` advances to `status = 'contacted'` /
+  `sequence_status = 'active'`, and an `email_events` row is recorded
+  (with `metadata.sender`). Send failures are logged to `sequence_tasks`
+  (`status = 'failed'`, `error_message`) and `email_events` (`event_type =
+  'failed'`) instead of retrying. The batch size per run is capped at 10
+  and further capped by `client_profiles.daily_send_limit` (defaults to
+  50/day if unset).
+
+  > Note: the existing personalized `email_body` text for the 3,035 leads
+  > signs off as "Ryan Cahill ... ryan@meetryancahill.com", which differs
+  > from the `benefitview.us` sending domain. Replies will go to whichever
+  > address the recipient replies to (the From header is benefitview.us).
+  > Flag if you'd like the signature/calendar link in `leads.email_body`
+  > rewritten to match.
 
   As of this writing all 3,035 leads / 2,976 `campaign_leads` rows for the
   "CA K-12 IRMAA Awareness" campaign are already enriched, validated, and
