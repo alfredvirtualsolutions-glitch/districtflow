@@ -266,8 +266,8 @@
     },
     "Loop Enrich — 1 at a time": {
       "main": [
-        [{ "node": "🔮 Apollo — People Match", "type": "main", "index": 0 }],
-        [{ "node": "Enrichment Done", "type": "main", "index": 0 }]
+        [{ "node": "Enrichment Done", "type": "main", "index": 0 }],
+        [{ "node": "🔮 Apollo — People Match", "type": "main", "index": 0 }]
       ]
     },
     "🔮 Apollo — People Match": {
@@ -282,8 +282,8 @@
     },
     "Loop Validate — 1 at a time": {
       "main": [
-        [{ "node": "🟠 Clay — Verify Email", "type": "main", "index": 0 }],
-        [{ "node": "Validation Done", "type": "main", "index": 0 }]
+        [{ "node": "Validation Done", "type": "main", "index": 0 }],
+        [{ "node": "🟠 Clay — Verify Email", "type": "main", "index": 0 }]
       ]
     },
     "🟠 Clay — Verify Email": {
@@ -298,8 +298,8 @@
     },
     "Loop Send — 1 at a time": {
       "main": [
-        [{ "node": "📧 Send via SpaceMail", "type": "main", "index": 0 }],
-        [{ "node": "Send Done", "type": "main", "index": 0 }]
+        [{ "node": "Send Done", "type": "main", "index": 0 }],
+        [{ "node": "📧 Send via SpaceMail", "type": "main", "index": 0 }]
       ]
     },
     "📧 Send via SpaceMail": {
