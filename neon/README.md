@@ -54,6 +54,13 @@ Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
    and qualify *new* leads from the multicrawler (every 30 minutes), so
    they flow into `leadforce-send-campaign.json` automatically.
 
+   Alternatively, import `n8n/leadforce-pipeline.json` instead of the two
+   workflows above — it's the same enrich/validate/qualify/send logic
+   combined into a single workflow on one 15-minute schedule, for anyone
+   who prefers a single import. It needs the same credentials and env vars
+   (`Neon CRM`, the three SpaceMail SMTP credentials, `APOLLO_API_KEY`,
+   `CLAY_API_KEY`).
+
 ## Tables
 
 ### Pre-existing core CRM tables (production)
@@ -187,6 +194,15 @@ Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
   haven't reached the next stage yet, so this workflow and
   `leadforce-send-campaign.json` can run on independent schedules
   indefinitely as the crawler feeds in new leads.
+
+- **`leadforce-pipeline.json`** — combines all of the above
+  (`leadforce-enrich-validate-qualify.json` +
+  `leadforce-send-campaign.json`) into a single workflow on one 15-minute
+  schedule trigger, for a one-import setup. Functionally identical to
+  importing both separate workflows — same queries, same Apollo/Clay/Neon
+  CRM/SpaceMail credentials, same idempotent behavior. Use either this one
+  *or* the two separate workflows above, not both (running both would
+  double-process the same rows on overlapping schedules).
 
 ## Crawler ingest
 

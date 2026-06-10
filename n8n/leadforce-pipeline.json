@@ -1,0 +1,483 @@
+{
+  "name": "Leadforce (Neon CRM) — Full Pipeline: Enrich (Apollo) → Validate (Clay) → Qualify & Personalize → Send (SpaceMail) — every 15 min",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 700],
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 15 }]
+        }
+      }
+    },
+
+    {
+      "id": "fetch-unenriched",
+      "name": "📥 Get Unenriched Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [240, 100],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, first_name, last_name, full_name, email, job_title, school_district, district_name, state\nFROM leads\nWHERE enriched_at IS NULL\nORDER BY created_at ASC\nLIMIT 50",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "loop-enrich",
+      "name": "Loop Enrich — 1 at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [480, 100],
+      "parameters": { "batchSize": 1, "options": {} }
+    },
+
+    {
+      "id": "apollo-enrich",
+      "name": "🔮 Apollo — People Match",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 100],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/people/match",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ first_name: $json.first_name, last_name: $json.last_name, email: $json.email, organization_name: $json.school_district || $json.district_name, reveal_personal_emails: false }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-api-key", "value": "={{ $env.APOLLO_API_KEY }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "save-enrichment",
+      "name": "✅ Save Apollo Enrichment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [960, 100],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET\n  job_title = COALESCE($2, job_title),\n  linkedin_url = COALESCE($3, linkedin_url),\n  seniority = COALESCE($4, seniority),\n  enriched_at = now()\nWHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ $('Loop Enrich — 1 at a time').item.json.id }}, ={{ ($json.person || {}).title || null }}, ={{ ($json.person || {}).linkedin_url || null }}, ={{ ($json.person || {}).seniority || null }}"
+        }
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "enrich-done",
+      "name": "Enrichment Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 220],
+      "parameters": {}
+    },
+
+    {
+      "id": "fetch-unvalidated",
+      "name": "📥 Get Unvalidated Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [240, 400],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, email, first_name, last_name, school_district, district_name\nFROM leads\nWHERE enriched_at IS NOT NULL AND email_valid IS NULL\nORDER BY created_at ASC\nLIMIT 50",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "loop-validate",
+      "name": "Loop Validate — 1 at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [480, 400],
+      "parameters": { "batchSize": 1, "options": {} }
+    },
+
+    {
+      "id": "clay-validate",
+      "name": "🟠 Clay — Verify Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 400],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.clay.com/v3/sources/verify-email/run",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ email: $json.email, firstName: $json.first_name, lastName: $json.last_name, companyName: $json.school_district || $json.district_name }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.CLAY_API_KEY }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "save-validation",
+      "name": "✅ Save Clay Validation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [960, 400],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET\n  email_valid = $2,\n  email_status = $3,\n  email_risk = $4\nWHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ $('Loop Validate — 1 at a time').item.json.id }}, ={{ ($json.status === 'valid' || $json.result === 'valid' || $json.deliverable === true) ? 'valid' : 'invalid' }}, ={{ $json.status || $json.result || null }}, ={{ $json.risk ?? null }}"
+        }
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "validate-done",
+      "name": "Validation Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1200, 520],
+      "parameters": {}
+    },
+
+    {
+      "id": "personalize-qualifying",
+      "name": "🏁 Personalize Qualifying Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [240, 700],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH cfg AS (\n  SELECT allowed_job_titles, excluded_job_titles, active_states\n  FROM client_profiles WHERE client_id = 'ryan-cahill'\n),\nqualifying AS (\n  SELECT l.id\n  FROM leads l\n  CROSS JOIN cfg\n  WHERE l.email_valid = 'valid'\n    AND l.email_subject IS NULL\n    AND l.state = ANY(cfg.active_states)\n    AND l.job_title IS NOT NULL\n    AND EXISTS (\n      SELECT 1 FROM unnest(cfg.allowed_job_titles) AS allowed\n      WHERE l.job_title ILIKE '%' || allowed || '%'\n    )\n    AND NOT EXISTS (\n      SELECT 1 FROM unnest(cfg.excluded_job_titles) AS excl\n      WHERE l.job_title ILIKE '%' || excl || '%'\n    )\n    AND NOT EXISTS (\n      SELECT 1 FROM suppression_list sup WHERE lower(sup.email) = lower(l.email)\n    )\n)\nUPDATE leads l SET\n  email_subject = 'Complimentary Pension Review – ' || COALESCE(l.first_name, 'there') || ', are you maximizing your CalSTRS/CalPERS benefits?',\n  email_body = 'Hi ' || COALESCE(l.first_name, 'there') || ',' || E'\\n\\n' ||\n    'My name is Ryan Cahill and I help educate CalSTRS and CalPERS employees with regards to the California State Teachers Retirement System Pension Benefits Plan.' || E'\\n\\n' ||\n    'I am currently meeting virtually with educators in ' || COALESCE(l.school_district, l.district_name, 'your district') || '.' || E'\\n\\n' ||\n    'During our meeting, we will cover the following agenda items:' || E'\\n' ||\n    '● When is the soonest you are eligible to retire?' || E'\\n' ||\n    '● How much is your pension going to pay you?' || E'\\n' ||\n    '● Do you qualify for social security benefits?' || E'\\n' ||\n    '● Do you get both a pension and social security?' || E'\\n' ||\n    '● How much income will your 403b or 457 provide you in retirement?' || E'\\n\\n' ||\n    'Here is my calendar link to select a day & time that works best for you.' || E'\\n\\n' ||\n    'https://calendly.com/meetryancahill/strategic-planning-financial-overview' || E'\\n\\n' ||\n    'This service is part of a state-approved financial education program for school employees. While we''re not affiliated with CalSTRS or your district, we''re here to help you make informed, confident decisions about your retirement.' || E'\\n\\n' ||\n    'I look forward to helping you!' || E'\\n\\n' ||\n    'Ryan Cahill' || E'\\n' ||\n    'Pension & Retirement Specialist' || E'\\n' ||\n    'Phone: 614-806-0233' || E'\\n' ||\n    'CA Lic. 0156729' || E'\\n' ||\n    'ryan@meetryancahill.com',\n  personalized_at = now()\nWHERE l.id IN (SELECT id FROM qualifying)",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "queue-personalized",
+      "name": "🏁 Queue Personalized Leads + Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [480, 700],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH cfg AS (\n  SELECT NULLIF(active_campaign_id, '')::uuid AS configured_campaign_id\n  FROM client_profiles WHERE client_id = 'ryan-cahill'\n),\nryan AS (\n  SELECT id FROM clients WHERE name = 'Ryan Cahill' LIMIT 1\n)\nINSERT INTO campaign_leads (campaign_id, lead_id, status, sequence_status, queue_date)\nSELECT\n  COALESCE(\n    cfg.configured_campaign_id,\n    (SELECT id FROM campaigns WHERE client_id = COALESCE(l.client_id, ryan.id) AND is_active = true LIMIT 1)\n  ),\n  l.id, 'new', 'not_started', CURRENT_DATE\nFROM leads l\nCROSS JOIN cfg\nCROSS JOIN ryan\nWHERE l.email_valid = 'valid'\n  AND l.personalized_at IS NOT NULL\n  AND NOT EXISTS (SELECT 1 FROM campaign_leads cl WHERE cl.lead_id = l.id)",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "qualify-done",
+      "name": "Qualification Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [720, 700],
+      "parameters": {}
+    },
+
+    {
+      "id": "fetch-sendable",
+      "name": "📥 Get Sendable Campaign Leads",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [240, 1000],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH limit_cfg AS (\n  SELECT COALESCE((SELECT daily_send_limit FROM client_profiles WHERE client_id = 'ryan-cahill'), 50) AS daily_limit\n),\ntoday_sent AS (\n  SELECT count(*) AS n FROM sequence_tasks\n  WHERE task_type = 'email_send' AND status = 'sent' AND sent_at::date = CURRENT_DATE\n),\nsender_pool AS (\n  SELECT COALESCE(\n    (SELECT sender_pool FROM client_profiles WHERE client_id = 'ryan-cahill'),\n    ARRAY['benefitcheck@benefitview.us']\n  ) AS pool\n),\ncandidates AS (\n  SELECT cl.id AS campaign_lead_id, cl.campaign_id, l.id AS lead_id, l.email, l.first_name, l.full_name,\n         l.email_subject, l.email_body, l.school_district,\n         row_number() OVER (ORDER BY cl.created_at ASC) - 1 AS rn\n  FROM campaign_leads cl\n  JOIN leads l ON l.id = cl.lead_id\n  JOIN campaigns c ON c.id = cl.campaign_id\n  WHERE c.is_active = true\n    AND cl.status = 'new'\n    AND cl.sequence_status = 'not_started'\n    AND l.email_valid = 'valid'\n    AND l.email_subject IS NOT NULL\n    AND l.email_body IS NOT NULL\n    AND NOT EXISTS (\n      SELECT 1 FROM suppression_list sup WHERE lower(sup.email) = lower(l.email)\n    )\n)\nSELECT\n  candidates.campaign_lead_id, candidates.campaign_id, candidates.lead_id, candidates.email,\n  candidates.first_name, candidates.full_name, candidates.email_subject, candidates.email_body,\n  candidates.school_district,\n  (sender_pool.pool)[(candidates.rn % array_length(sender_pool.pool, 1)) + 1] AS sender_account\nFROM candidates\nCROSS JOIN sender_pool\nORDER BY candidates.rn\nLIMIT LEAST(\n  10,\n  GREATEST((SELECT daily_limit FROM limit_cfg) - (SELECT n FROM today_sent), 0)\n)",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "loop-send",
+      "name": "Loop Send — 1 at a time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [480, 1000],
+      "parameters": { "batchSize": 1, "options": {} }
+    },
+
+    {
+      "id": "route-benefitcheck",
+      "name": "Sender = benefitcheck?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [720, 900],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-benefitcheck",
+              "leftValue": "={{ $json.sender_account }}",
+              "rightValue": "benefitcheck@benefitview.us",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "route-clarityreview",
+      "name": "Sender = clarityreview?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [960, 1160],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-clarityreview",
+              "leftValue": "={{ $json.sender_account }}",
+              "rightValue": "clarityreview@benefitview.us",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "send-benefitcheck",
+      "name": "📧 Send via SpaceMail (benefitcheck)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1200, 800],
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "fromEmail": "={{ $json.sender_account }}",
+        "toEmail": "={{ $json.email }}",
+        "subject": "={{ $json.email_subject }}",
+        "message": "={{ $json.email_body }}",
+        "options": { "appendAttribution": false }
+      },
+      "credentials": {
+        "smtp": { "id": "", "name": "SpaceMail - benefitcheck@benefitview.us" }
+      }
+    },
+
+    {
+      "id": "send-clarityreview",
+      "name": "📧 Send via SpaceMail (clarityreview)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1200, 1160],
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "fromEmail": "={{ $json.sender_account }}",
+        "toEmail": "={{ $json.email }}",
+        "subject": "={{ $json.email_subject }}",
+        "message": "={{ $json.email_body }}",
+        "options": { "appendAttribution": false }
+      },
+      "credentials": {
+        "smtp": { "id": "", "name": "SpaceMail - clarityreview@benefitview.us" }
+      }
+    },
+
+    {
+      "id": "send-notification",
+      "name": "📧 Send via SpaceMail (notification)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1200, 1400],
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "fromEmail": "={{ $json.sender_account }}",
+        "toEmail": "={{ $json.email }}",
+        "subject": "={{ $json.email_subject }}",
+        "message": "={{ $json.email_body }}",
+        "options": { "appendAttribution": false }
+      },
+      "credentials": {
+        "smtp": { "id": "", "name": "SpaceMail - notification@benefitview.us" }
+      }
+    },
+
+    {
+      "id": "record-sent",
+      "name": "✅ Record Sent (sequence_tasks + campaign_leads + email_events)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1440, 1000],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH task AS (\n  INSERT INTO sequence_tasks (campaign_lead_id, task_type, scheduled_for, status, email_step, subject_line, email_body, sent_at)\n  VALUES ($1, 'email_send', now(), 'sent', 1, $2, $3, now())\n  RETURNING id\n),\nupdated_cl AS (\n  UPDATE campaign_leads SET\n    status = 'contacted',\n    sequence_status = 'active',\n    last_contacted_at = now(),\n    next_action_at = now() + interval '4 days'\n  WHERE id = $1\n  RETURNING id\n)\nINSERT INTO email_events (campaign_lead_id, event_type, recipient_email, subject, metadata)\nSELECT $1, 'sent', $4, $2, jsonb_build_object('sender', $5)\nFROM task",
+        "options": {
+          "queryReplacement": "={{ $('Loop Send — 1 at a time').item.json.campaign_lead_id }}, ={{ $('Loop Send — 1 at a time').item.json.email_subject }}, ={{ $('Loop Send — 1 at a time').item.json.email_body }}, ={{ $('Loop Send — 1 at a time').item.json.email }}, ={{ $('Loop Send — 1 at a time').item.json.sender_account }}"
+        }
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "record-failed",
+      "name": "⚠️ Record Send Failure",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1440, 1320],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH task AS (\n  INSERT INTO sequence_tasks (campaign_lead_id, task_type, scheduled_for, status, email_step, subject_line, email_body, error_message)\n  VALUES ($1, 'email_send', now(), 'failed', 1, $2, $3, $4)\n  RETURNING id\n)\nINSERT INTO email_events (campaign_lead_id, event_type, recipient_email, subject, metadata)\nSELECT $1, 'failed', $5, $2, jsonb_build_object('error', $4, 'sender', $6)\nFROM task",
+        "options": {
+          "queryReplacement": "={{ $('Loop Send — 1 at a time').item.json.campaign_lead_id }}, ={{ $('Loop Send — 1 at a time').item.json.email_subject }}, ={{ $('Loop Send — 1 at a time').item.json.email_body }}, ={{ $json.error?.message || 'send failed' }}, ={{ $('Loop Send — 1 at a time').item.json.email }}, ={{ $('Loop Send — 1 at a time').item.json.sender_account }}"
+        }
+      },
+      "credentials": {
+        "postgres": { "id": "", "name": "Neon CRM" }
+      }
+    },
+
+    {
+      "id": "send-done",
+      "name": "Send Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [720, 1480],
+      "parameters": {}
+    }
+  ],
+
+  "connections": {
+    "Every 15 Minutes": {
+      "main": [[
+        { "node": "📥 Get Unenriched Leads", "type": "main", "index": 0 },
+        { "node": "📥 Get Unvalidated Leads", "type": "main", "index": 0 },
+        { "node": "🏁 Personalize Qualifying Leads", "type": "main", "index": 0 },
+        { "node": "📥 Get Sendable Campaign Leads", "type": "main", "index": 0 }
+      ]]
+    },
+
+    "📥 Get Unenriched Leads": {
+      "main": [[{ "node": "Loop Enrich — 1 at a time", "type": "main", "index": 0 }]]
+    },
+    "Loop Enrich — 1 at a time": {
+      "main": [
+        [{ "node": "Enrichment Done", "type": "main", "index": 0 }],
+        [{ "node": "🔮 Apollo — People Match", "type": "main", "index": 0 }]
+      ]
+    },
+    "🔮 Apollo — People Match": {
+      "main": [[{ "node": "✅ Save Apollo Enrichment", "type": "main", "index": 0 }]]
+    },
+    "✅ Save Apollo Enrichment": {
+      "main": [[{ "node": "Loop Enrich — 1 at a time", "type": "main", "index": 0 }]]
+    },
+
+    "📥 Get Unvalidated Leads": {
+      "main": [[{ "node": "Loop Validate — 1 at a time", "type": "main", "index": 0 }]]
+    },
+    "Loop Validate — 1 at a time": {
+      "main": [
+        [{ "node": "Validation Done", "type": "main", "index": 0 }],
+        [{ "node": "🟠 Clay — Verify Email", "type": "main", "index": 0 }]
+      ]
+    },
+    "🟠 Clay — Verify Email": {
+      "main": [[{ "node": "✅ Save Clay Validation", "type": "main", "index": 0 }]]
+    },
+    "✅ Save Clay Validation": {
+      "main": [[{ "node": "Loop Validate — 1 at a time", "type": "main", "index": 0 }]]
+    },
+
+    "🏁 Personalize Qualifying Leads": {
+      "main": [[{ "node": "🏁 Queue Personalized Leads + Log", "type": "main", "index": 0 }]]
+    },
+    "🏁 Queue Personalized Leads + Log": {
+      "main": [[{ "node": "Qualification Done", "type": "main", "index": 0 }]]
+    },
+
+    "📥 Get Sendable Campaign Leads": {
+      "main": [[{ "node": "Loop Send — 1 at a time", "type": "main", "index": 0 }]]
+    },
+    "Loop Send — 1 at a time": {
+      "main": [
+        [{ "node": "Send Done", "type": "main", "index": 0 }],
+        [{ "node": "Sender = benefitcheck?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Sender = benefitcheck?": {
+      "main": [
+        [{ "node": "📧 Send via SpaceMail (benefitcheck)", "type": "main", "index": 0 }],
+        [{ "node": "Sender = clarityreview?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Sender = clarityreview?": {
+      "main": [
+        [{ "node": "📧 Send via SpaceMail (clarityreview)", "type": "main", "index": 0 }],
+        [{ "node": "📧 Send via SpaceMail (notification)", "type": "main", "index": 0 }]
+      ]
+    },
+    "📧 Send via SpaceMail (benefitcheck)": {
+      "main": [
+        [{ "node": "✅ Record Sent (sequence_tasks + campaign_leads + email_events)", "type": "main", "index": 0 }],
+        [{ "node": "⚠️ Record Send Failure", "type": "main", "index": 0 }]
+      ]
+    },
+    "📧 Send via SpaceMail (clarityreview)": {
+      "main": [
+        [{ "node": "✅ Record Sent (sequence_tasks + campaign_leads + email_events)", "type": "main", "index": 0 }],
+        [{ "node": "⚠️ Record Send Failure", "type": "main", "index": 0 }]
+      ]
+    },
+    "📧 Send via SpaceMail (notification)": {
+      "main": [
+        [{ "node": "✅ Record Sent (sequence_tasks + campaign_leads + email_events)", "type": "main", "index": 0 }],
+        [{ "node": "⚠️ Record Send Failure", "type": "main", "index": 0 }]
+      ]
+    },
+    "✅ Record Sent (sequence_tasks + campaign_leads + email_events)": {
+      "main": [[{ "node": "Loop Send — 1 at a time", "type": "main", "index": 0 }]]
+    },
+    "⚠️ Record Send Failure": {
+      "main": [[{ "node": "Loop Send — 1 at a time", "type": "main", "index": 0 }]]
+    }
+  },
+
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": ["leadforce", "neon", "apollo", "clay", "email", "automation", "all-in-one"]
+}
