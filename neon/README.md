@@ -8,7 +8,7 @@ Supabase (school_districts: district + staff directory URLs)
         ▼
 Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
                                                 │
-                                  n8n (scheduled)│
+                                  automation (scheduled)│
                                   ┌──────────────┘
                                   ▼
                   Apollo enrichment → Clay validation
@@ -16,7 +16,7 @@ Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
                   → outreach queue (sequence_tasks) → SpaceMail send
                                   │
                                   ▼
-                  replies, appointments (Calendly), daily_activity_log
+                  replies, appointments, daily_activity_log
 ```
 
 ## Setup
@@ -37,29 +37,6 @@ Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
    - `NEON_DATABASE_URL` — Neon Postgres connection string
    - `CRAWLER_SECRET` — shared secret the crawler sends as
      `X-Crawler-Secret` (same secret used by `crawlerIngest`)
-4. In n8n, add a **Postgres** credential named `Neon CRM` pointing at the
-   same `NEON_DATABASE_URL`, and three **SMTP** credentials (host
-   `mail.spacemail.com`, port `465` or `587`, SSL) — one per SpaceMail
-   mailbox in the sender pool, named exactly:
-   - `SpaceMail - benefitcheck@benefitview.us`
-   - `SpaceMail - clarityreview@benefitview.us`
-   - `SpaceMail - notification@benefitview.us`
-
-   Then import `n8n/leadforce-send-campaign.json` to start sending to
-   qualified, validated, personalized leads on a schedule (every 15
-   minutes, respecting `client_profiles.daily_send_limit`, rotating across
-   the three mailboxes).
-5. Set `APOLLO_API_KEY` and `CLAY_API_KEY` in the n8n environment, and
-   import `n8n/leadforce-enrich-validate-qualify.json` to enrich, validate,
-   and qualify *new* leads from the multicrawler (every 30 minutes), so
-   they flow into `leadforce-send-campaign.json` automatically.
-
-   Alternatively, import `n8n/leadforce-pipeline.json` instead of the two
-   workflows above — it's the same enrich/validate/qualify/send logic
-   combined into a single workflow on one 15-minute schedule, for anyone
-   who prefers a single import. It needs the same credentials and env vars
-   (`Neon CRM`, the three SpaceMail SMTP credentials, `APOLLO_API_KEY`,
-   `CLAY_API_KEY`).
 
 ## Tables
 
@@ -89,7 +66,7 @@ Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
 ### Added by `neon/migrations/003_sender_pool.sql`
 
 - **`client_profiles.sender_pool`** (`TEXT[]`) — the pool of SpaceMail
-  mailboxes the send-campaign workflow rotates across:
+  mailboxes outreach sends rotate across:
   `benefitcheck@benefitview.us`, `clarityreview@benefitview.us`,
   `notification@benefitview.us`. `sending_email`/`sending_domain` were
   also backfilled to `benefitcheck@benefitview.us` / `benefitview.us` for
@@ -118,91 +95,55 @@ Multicrawler / scraper  ──▶  districts / schools / leads (Neon)
   `task_status` values (`draft`, `ready`, `scheduled`, `sent`, `paused`,
   `replied`, `suppressed`) support the full status-movement rules.
 
-## n8n workflows
+## Outreach automation (not n8n — build/host separately)
 
-> **`leadforce-batch-validate-send.json` is deprecated / superseded.** It
-> predates the Neon CRM and queries a Supabase `leads` table directly via
-> PostgREST (`enrichment_status`, `validation_status`, `send_status`,
-> `suppressed`, `organization`, etc.) — columns/table that don't exist in
-> Supabase under the current architecture (`leads` lives in Neon; Supabase
-> only holds `school_districts`). If this workflow is active in n8n, its
-> "Get 100 Unenriched/Unvalidated/Valid Unsent Leads" nodes will error or
-> return empty results. It has been replaced by
-> `leadforce-enrich-validate-qualify.json` and
-> `leadforce-send-campaign.json` below — deactivate the old workflow in n8n
-> and import these two instead.
->
-> It also has an Apollo API key and a Clay bearer token hardcoded in
-> plaintext (committed on `main`). **Rotate both keys** — they should never
-> live in a repo file; n8n credentials belong in n8n's credential store,
-> referenced by name only (as the two workflows below do).
+The pipeline previously had n8n workflow JSON in this repo; that's been
+removed. Whatever automation replaces it (e.g. a scheduled script) needs to
+implement, against `NEON_DATABASE_URL`:
 
-- **`leadforce-send-campaign.json`** — runs every 15 minutes. Selects
-  `campaign_leads` that are `status = 'new'`, `sequence_status =
-  'not_started'`, on an active campaign, with a validated email
-  (`leads.email_valid = 'valid'`) and existing personalization
-  (`email_subject` / `email_body`), skipping anything in
-  `suppression_list`. Each lead is round-robin assigned a sender from
-  `client_profiles.sender_pool` (the three benefitview.us mailboxes), then
-  routed to the matching SpaceMail SMTP credential and sent. The send is
-  logged to `sequence_tasks` (`task_type = 'email_send'`, `status =
-  'sent'`), `campaign_leads` advances to `status = 'contacted'` /
-  `sequence_status = 'active'`, and an `email_events` row is recorded
-  (with `metadata.sender`). Send failures are logged to `sequence_tasks`
-  (`status = 'failed'`, `error_message`) and `email_events` (`event_type =
-  'failed'`) instead of retrying. The batch size per run is capped at 10
-  and further capped by `client_profiles.daily_send_limit` (defaults to
-  50/day if unset).
+1. **Enrich**: for `leads` with `enriched_at IS NULL`, call Apollo People
+   Match and fill in `job_title` / `linkedin_url` / `seniority` (without
+   clobbering existing values), then stamp `enriched_at`.
+2. **Validate**: for enriched leads with `email_valid IS NULL`, call Clay's
+   verify-email and record `email_valid` (`valid`/`invalid`),
+   `email_status`, `email_risk`.
+3. **Qualify & personalize**: for leads with `email_valid = 'valid'` and no
+   `email_subject` yet, check against `client_profiles`
+   (`job_title` matches `allowed_job_titles` and not `excluded_job_titles`,
+   `state` in `active_states`) and `suppression_list`. Qualifying leads get
+   the "Complimentary Pension Review" email template (subject + body, with
+   `first_name`/`school_district` substituted), stamped with
+   `personalized_at`, then get a `campaign_leads` row inserted
+   (`status = 'new'`, `sequence_status = 'not_started'`), using
+   `client_profiles.active_campaign_id` if set, else the client's active
+   campaign.
+4. **Send**: select `campaign_leads` that are `status = 'new'`,
+   `sequence_status = 'not_started'`, on an active campaign, with
+   `leads.email_valid = 'valid'` and existing `email_subject`/`email_body`,
+   skipping anything in `suppression_list`. Round-robin assign a sender
+   from `client_profiles.sender_pool`, send via that mailbox's SpaceMail
+   SMTP, then log to `sequence_tasks` (`task_type = 'email_send'`,
+   `status = 'sent'`), advance `campaign_leads` to
+   `status = 'contacted'` / `sequence_status = 'active'`, and record an
+   `email_events` row (`metadata.sender`). On send failure, log
+   `sequence_tasks` (`status = 'failed'`, `error_message`) and
+   `email_events` (`event_type = 'failed'`) instead of retrying. Cap sends
+   per run and respect `client_profiles.daily_send_limit` (defaults to
+   50/day if unset).
 
-  > Note: the existing personalized `email_body` text for the 3,035 leads
-  > signs off as "Ryan Cahill ... ryan@meetryancahill.com", which differs
-  > from the `benefitview.us` sending domain. Replies will go to whichever
-  > address the recipient replies to (the From header is benefitview.us).
-  > Flag if you'd like the signature/calendar link in `leads.email_body`
-  > rewritten to match.
+All of the above is idempotent by construction (each step only touches rows
+that haven't reached the next stage), so it can run on any schedule without
+double-processing.
 
-  As of this writing all 3,035 leads / 2,976 `campaign_leads` rows for the
-  "CA K-12 IRMAA Awareness" campaign are already enriched, validated, and
-  personalized — this workflow is the only thing standing between them and
-  outreach.
+> Note: the existing personalized `email_body` text for the 3,035 leads
+> signs off as "Ryan Cahill ... ryan@meetryancahill.com", which differs
+> from the `benefitview.us` sending domain. Replies will go to whichever
+> address the recipient replies to (the From header is benefitview.us).
 
-- **`leadforce-enrich-validate-qualify.json`** — runs every 30 minutes,
-  three branches feeding the send workflow above with *new* leads from the
-  multicrawler:
-  1. **Enrich**: leads with `enriched_at IS NULL` are matched against
-     Apollo People Match; `job_title`, `linkedin_url`, and `seniority` are
-     filled in (without clobbering existing values) and `enriched_at` is
-     stamped.
-  2. **Validate**: enriched leads with `email_valid IS NULL` are checked
-     via Clay's verify-email; `email_valid` (`valid`/`invalid`),
-     `email_status`, and `email_risk` are recorded.
-  3. **Qualify & personalize**: leads with `email_valid = 'valid'` and no
-     `email_subject` yet are checked against `client_profiles`
-     (`job_title` matches `allowed_job_titles` and not
-     `excluded_job_titles`, `state` in `active_states`) and
-     `suppression_list`. Qualifying leads get the same "Complimentary
-     Pension Review" email template (subject + body, with
-     `first_name`/`school_district` substituted) used for the existing
-     3,035 leads, stamped with `personalized_at`. A second query then
-     inserts a `campaign_leads` row (`status = 'new'`, `sequence_status =
-     'not_started'`) for every personalized lead not already on a
-     campaign, using `client_profiles.active_campaign_id` if set, else the
-     client's active campaign. New leads with no `client_id` are treated
-     as belonging to Ryan Cahill (the only current client).
-
-  All three queries are idempotent — re-running only touches leads that
-  haven't reached the next stage yet, so this workflow and
-  `leadforce-send-campaign.json` can run on independent schedules
-  indefinitely as the crawler feeds in new leads.
-
-- **`leadforce-pipeline.json`** — combines all of the above
-  (`leadforce-enrich-validate-qualify.json` +
-  `leadforce-send-campaign.json`) into a single workflow on one 15-minute
-  schedule trigger, for a one-import setup. Functionally identical to
-  importing both separate workflows — same queries, same Apollo/Clay/Neon
-  CRM/SpaceMail credentials, same idempotent behavior. Use either this one
-  *or* the two separate workflows above, not both (running both would
-  double-process the same rows on overlapping schedules).
+As of this writing all 3,035 leads / 2,976 `campaign_leads` rows for the
+"CA K-12 IRMAA Awareness" campaign are already enriched, validated, and
+personalized — step 4 (Send) is the only thing standing between them and
+outreach.
 
 ## Crawler ingest
 
