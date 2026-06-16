@@ -28,6 +28,12 @@ VITE_BASE44_APP_BASE_URL=https://my-to-do-list-81bfaad7.base44.app
 
 Run the app: `npm run dev`
 
+**Ryan Cahill Pipeline (Neon CRM)**
+
+The teacher-lead CRM runs on Neon. See [`neon/README.md`](./neon/README.md)
+for the schema, setup steps, and required environment variables
+(`NEON_DATABASE_URL`, `CRAWLER_SECRET`, `APOLLO_API_KEY`, `CLAY_API_KEY`).
+
 **Publish your changes**
 
 Open [Base44.com](http://Base44.com) and click on Publish.

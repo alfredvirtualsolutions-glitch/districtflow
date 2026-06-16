@@ -1,0 +1,20 @@
+-- ============================================================================
+-- Ryan Cahill Pipeline — Neon CRM schema
+--
+-- Neon is the CRM/working database for the Ryan Cahill AI Worker Sync
+-- Workflow. The core CRM tables (clients, campaigns, leads, campaign_leads,
+-- sequence_tasks, email_events, lead_notes, users) already exist in the
+-- production database and are not redefined here.
+--
+-- This file applies the additive schema for the AI Worker:
+--   - client_profiles (Table 1 — CRM rules, territory, sending config)
+--   - the migrations in neon/migrations/ (districts, schools, replies,
+--     suppression_list, appointments, daily_activity_log, plus extensions
+--     to leads/sequence_tasks and new enum values)
+--
+-- Apply in order:
+--   psql "$NEON_DATABASE_URL" -f neon/migrations/001_client_profiles.sql
+--   psql "$NEON_DATABASE_URL" -f neon/migrations/002_crm_extensions.sql
+--
+-- See neon/README.md for the full table reference.
+-- ============================================================================
