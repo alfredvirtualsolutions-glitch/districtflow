@@ -28,6 +28,7 @@
           "parameters": [
             { "name": "enrichment_status", "value": "is.null" },
             { "name": "suppressed",         "value": "eq.false" },
+            { "name": "state",              "value": "eq.CA" },
             { "name": "select",             "value": "id,first_name,last_name,email,organization,district_name,state,website" },
             { "name": "limit",              "value": "100" },
             { "name": "order",              "value": "created_at.asc" }
@@ -126,6 +127,7 @@
             { "name": "enrichment_status",  "value": "eq.enriched" },
             { "name": "validation_status",  "value": "is.null" },
             { "name": "suppressed",         "value": "eq.false" },
+            { "name": "state",              "value": "eq.CA" },
             { "name": "select",             "value": "id,first_name,last_name,email,organization,district_name" },
             { "name": "limit",              "value": "100" },
             { "name": "order",              "value": "created_at.asc" }
@@ -224,6 +226,7 @@
             { "name": "validation_status", "value": "eq.valid" },
             { "name": "send_status",       "value": "is.null" },
             { "name": "suppressed",        "value": "eq.false" },
+            { "name": "state",             "value": "eq.CA" },
             { "name": "select",            "value": "id,email,first_name,last_name,district_name,state,subject_line,email_body,sequence_day,send_attempt_count,priority_score" },
             { "name": "limit",             "value": "100" },
             { "name": "order",             "value": "priority_score.desc.nullslast,created_at.asc" }
